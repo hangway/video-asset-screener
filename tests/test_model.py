@@ -65,6 +65,31 @@ def test_pooling_respects_mask():
     assert torch.isclose(_masked_mean(x, valid)[0, 0], torch.tensor(0.55))
 
 
+def test_all_padding_row_stays_finite():
+    """A fully-padded row must not leak inf/NaN into the outputs: without the
+    guard, attention NaNs (softmax over all -inf) and _masked_min emits inf
+    into the verdict head."""
+    torch.manual_seed(3)
+    m = MultiTaskScreener(feature_dim=16, d_model=16, n_layers=1, n_heads=2)
+    m.eval()
+    feats = torch.randn(2, 4, 16)
+    mask = torch.ones(2, 4)
+    mask[1] = 0.0  # second row is all padding
+    with torch.no_grad():
+        out = m(feats, mask)
+    assert torch.isfinite(out["verdict_logits"]).all()
+    assert torch.isfinite(out["flag_probs"]).all()
+    for d in DIMENSIONS:
+        assert torch.isfinite(out["dim_thresh_probs"][d]).all(), d
+        assert torch.isfinite(out["dim_scores"][d]).all(), d
+        assert (out["dim_thresh_probs"][d] >= 0).all()
+        assert (out["dim_thresh_probs"][d] <= 1).all()
+    # the valid row's outputs match a single-row forward (guard is row-local)
+    with torch.no_grad():
+        solo = m(feats[:1], mask[:1])
+    assert torch.allclose(out["verdict_logits"][0], solo["verdict_logits"][0], atol=1e-5)
+
+
 def test_worst_frame_dims_use_min():
     """temporal_stability/motion_quality use worst-frame (min) pooling: a single
     bad frame drives the clip score down."""
