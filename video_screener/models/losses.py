@@ -35,6 +35,14 @@ def coral_loss(
     valid = target_level >= 0
     if valid.sum() == 0:
         return clip_thresh_probs.sum() * 0.0  # keep graph, zero contribution
+    # Numerical stability: BCE must stay on POOLED PROBABILITIES, not logits.
+    # §5 mean-frame pooling averages per-frame sigmoids, and sigmoid does not
+    # commute with the mean, so no clip-level logit exists whose sigmoid equals
+    # the pooled prob (min/max pooling would commute, but only 2 of 6 dims use
+    # min). The clamp bounds the loss at -ln(_EPS) ~= 13.8 and, because clamp
+    # passes zero gradient outside its range, saturated pooled probs stop
+    # contributing gradient instead of exploding. See notes.md
+    # "CORAL-on-logits assessment" for the full deferral rationale.
     probs = clip_thresh_probs[valid].clamp(_EPS, 1 - _EPS)
     lvl = target_level[valid].unsqueeze(1)             # [n,1]
     ks = torch.arange(km1, device=probs.device).unsqueeze(0)  # [1,K-1]
