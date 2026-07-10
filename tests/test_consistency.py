@@ -160,3 +160,24 @@ def test_score_clip_empty_inputs_return_none():
     assert score_clip(np.zeros((0, 4), dtype=np.float32), idx) is None
     assert score_clip(np.ones((2, 4), dtype=np.float32),
                       ReferenceIndex(encoder_name="x")) is None
+
+
+# ----------------------------- within-clip drift ----------------------------
+def test_frame_drift_consecutive_cosine_distance():
+    from video_screener.consistency import frame_drift
+
+    e0, e1 = [1, 0, 0, 0], [0, 1, 0, 0]
+    frames = np.array([e0, e0, e1, e1], dtype=np.float32)
+    d = frame_drift(frames)
+    # steady, orthogonal jump (distance 1), steady
+    assert np.allclose(d, [0.0, 1.0, 0.0], atol=1e-6)
+    assert d.argmax() == 1  # the jump is between frames 1 and 2
+
+
+def test_frame_drift_scale_invariant_and_degenerate():
+    from video_screener.consistency import frame_drift
+
+    scaled = np.array([[1, 0, 0, 0], [5, 0, 0, 0]], dtype=np.float32)
+    assert np.allclose(frame_drift(scaled), [0.0], atol=1e-6)
+    assert frame_drift(np.ones((1, 4), dtype=np.float32)).size == 0
+    assert frame_drift(np.zeros((0, 4), dtype=np.float32)).size == 0

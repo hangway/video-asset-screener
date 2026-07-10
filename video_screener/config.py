@@ -132,6 +132,9 @@ class ConsistencyConfig(BaseModel):
     min_reference_similarity: float = 0.5
     # How many worst per-frame offenders to list per clip in the report.
     report_worst_k: int = 3
+    # Within-clip drift: max consecutive-frame cosine distance above this
+    # marks a morphing candidate -> needs_human_review (never auto-REJECT).
+    max_frame_drift: float = 0.35
 
 
 class ScreenConfig(BaseModel):

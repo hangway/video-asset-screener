@@ -111,6 +111,20 @@ def frame_reference_similarity(frame_embeddings: np.ndarray,
     return sims.max(axis=1)
 
 
+def frame_drift(frame_embeddings: np.ndarray) -> np.ndarray:
+    """Within-clip drift: cosine distance between consecutive frames.
+
+    [T,D] -> [T-1]; entry i is the distance between frames i and i+1. Large
+    consecutive jumps are morphing/identity-drift candidates. Auxiliary
+    signal only: it flags clips for human review, it never auto-REJECTs
+    (a hard cut is a legitimate reason for a big jump)."""
+    if frame_embeddings.shape[0] < 2:
+        return np.zeros(0, dtype=np.float32)
+    n = _normalize_rows(frame_embeddings)
+    sims = (n[:-1] * n[1:]).sum(axis=-1)
+    return (1.0 - sims).astype(np.float32)
+
+
 def score_clip(frame_embeddings: np.ndarray,
                index: ReferenceIndex) -> ClipConsistency | None:
     """Score a clip's frames against every subject; assign the best subject.

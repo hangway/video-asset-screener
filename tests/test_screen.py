@@ -166,6 +166,40 @@ def test_consistency_above_threshold_leaves_routing_alone(tmp_path):
     InferenceRecord.model_validate(rec.model_dump())
 
 
+def test_drift_flags_morphing_candidate_for_review_not_reject(tmp_path):
+    """High frame-to-frame drift -> needs_human_review, but the verdict and
+    flags are untouched (drift never auto-REJECTs)."""
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))  # drift threshold 0.35
+    idx = _ref_index(hero=[[1.0, 0.0, 0.0, 0.0]])
+    # both frames similar enough to the reference (0.6 >= 0.5) but the jump
+    # between them has cosine distance 0.4 > 0.35 -> morphing candidate
+    emb = [[1.0, 0.0, 0.0, 0.0], [0.6, 0.8, 0.0, 0.0]]
+    model = _StubModel([2.0, 1.0, 0.0], NO_FLAGS, LEVEL4)  # head: PASS
+    rec, cons = _screen_one(model, _EmbeddingEncoder(emb), _meta(),
+                            _ok_sample(2), cfg, "morphy", idx)
+    assert rec.verdict == "PASS"                  # unchanged
+    assert rec.hard_fail_flags == []              # no flag from drift
+    assert rec.needs_human_review is True         # review only
+    assert cons["drift_exceeds_threshold"] is True
+    assert abs(cons["max_drift"] - 0.4) < 1e-3
+    assert cons["max_drift_between"]["frame_index"] == 0
+    assert abs(cons["max_drift_between"]["time_sec"] - 0.0) < 1e-6
+    InferenceRecord.model_validate(rec.model_dump())
+
+
+def test_low_drift_does_not_request_review(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    idx = _ref_index(hero=[[1.0, 0.0, 0.0, 0.0]])
+    emb = [[1, 0, 0, 0], [0.98, 0.05, 0, 0], [0.97, 0.08, 0, 0]]
+    model = _StubModel([2.0, 1.0, 0.0], NO_FLAGS, LEVEL4)
+    rec, cons = _screen_one(model, _EmbeddingEncoder(emb), _meta(),
+                            _ok_sample(3), cfg, "steady", idx)
+    assert rec.verdict == "PASS"
+    assert rec.needs_human_review is False
+    assert cons["drift_exceeds_threshold"] is False
+    assert cons["max_drift"] < 0.05
+
+
 def test_consistency_entry_absent_without_references(tmp_path):
     cfg = PipelineConfig(workdir=str(tmp_path / "run"))
     model = _StubModel([2.0, 1.0, 0.0], NO_FLAGS, LEVEL4)

@@ -36,6 +36,12 @@ deficit ``clamp(1 - score, 0, 1)`` standing in for the flag sigmoid (the
 consistency check, not the flag head, is the deciding source). Per-clip
 scores and worst per-frame offenders are written to
 ``consistency_report.json`` next to the other screen outputs.
+
+The same report carries within-clip drift (max consecutive-frame cosine
+distance) as an AUXILIARY signal: a clip above
+``consistency.max_frame_drift`` is a morphing candidate and gets
+``needs_human_review`` — drift never changes the verdict or raises a flag on
+its own (a hard cut is a legitimate reason for a big jump).
 """
 
 from __future__ import annotations
@@ -48,7 +54,12 @@ import torch
 
 from ..aggregate import derive_verdict
 from ..config import PipelineConfig
-from ..consistency import ReferenceIndex, index_references, score_clip
+from ..consistency import (
+    ReferenceIndex,
+    frame_drift,
+    index_references,
+    score_clip,
+)
 from ..models.encoder import build_encoder
 from ..models.model import MultiTaskScreener
 from ..schema import InferenceRecord
@@ -100,6 +111,10 @@ def _consistency_entry(aid: str, feats, frame_times: list[Optional[float]],
         "time_sec": frame_times[i] if i < len(frame_times) else None,
         "similarity": round(cons.per_frame[i], 4),
     } for i in order[:k]]
+    # within-clip drift (auxiliary): entry i = distance frames i -> i+1
+    drift = frame_drift(feats)
+    max_drift = float(drift.max()) if drift.size else 0.0
+    max_at = int(drift.argmax()) if drift.size else None
     return {
         "asset_id": aid,
         "subject": cons.subject,
@@ -108,6 +123,14 @@ def _consistency_entry(aid: str, feats, frame_times: list[Optional[float]],
         "per_frame": [round(v, 4) for v in cons.per_frame],
         "worst_frames": worst,
         "below_threshold": cons.score < cfg.consistency.min_reference_similarity,
+        "drift": [round(float(v), 4) for v in drift],
+        "max_drift": round(max_drift, 4),
+        "max_drift_between": (
+            {"frame_index": max_at,
+             "time_sec": frame_times[max_at] if max_at < len(frame_times) else None}
+            if max_at is not None else None
+        ),
+        "drift_exceeds_threshold": max_drift > cfg.consistency.max_frame_drift,
     }
 
 
@@ -168,6 +191,8 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
             # similarity deficit stands in for the flag sigmoid (deciding
             # source is the consistency check, not the flag head)
             cons_strength = max(0.0, min(1.0, 1.0 - cons_entry["score"]))
+    # morphing candidate (auxiliary): review only, never verdict-changing
+    drift_review = bool(cons_entry and cons_entry["drift_exceeds_threshold"])
 
     # (3) predicted hard-fail flag -> REJECT (hard-fail semantics, §2)
     fix_sig = _fix_signals(pred_scores, gate)
@@ -184,7 +209,9 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
             asset_id=aid, verdict="REJECT", confidence=max(0.0, min(1.0, conf)),
             hard_fail_flags=pred_flags, scores={d: float(pred_scores[d]) for d in DIMENSIONS},
             fix_actions=[], primary_reasons=pred_flags[:3],
-            needs_human_review=conf < cfg.screen.review_confidence_threshold,
+            needs_human_review=(
+                conf < cfg.screen.review_confidence_threshold or drift_review
+            ),
         ), cons_entry
 
     # (4) head-primary verdict (the head is grounded in dims+flags and is more
@@ -205,7 +232,7 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
     # PASS-gate downgrade rather than the head argmax)
     final_idx = VERDICTS.index(verdict)
     conf = float(head_probs[final_idx])
-    needs_review = needs_review or (
+    needs_review = needs_review or drift_review or (
         conf < cfg.screen.review_confidence_threshold and verdict in ("FIX", "REJECT")
     )
 
@@ -327,6 +354,8 @@ def _build_consistency_doc(entries: list[dict], index: ReferenceIndex,
         "subjects": {s: len(r.paths) for s, r in index.subjects.items()},
         "n_clips": len(entries),
         "n_below_threshold": sum(1 for e in entries if e["below_threshold"]),
+        "n_drift_flagged": sum(1 for e in entries if e.get("drift_exceeds_threshold")),
+        "drift_threshold": cfg.consistency.max_frame_drift,
         "clips": entries,
     }
 
