@@ -140,6 +140,9 @@ is this pip-installable package + README.
   clips, held-out metrics are thin and some labels (e.g. the `watermark`
   hard-fail) have no positive training example. See `notes.md` for the running
   log of decisions, verified results, and open questions.
-- Screen confidence is the model's verdict-head probability; it is **not**
-  calibrated on a held-out set with this toy dataset (documented placeholder
-  per §7.2 — calibrate on a real validation set before production use).
+- Screen confidence is the probability the *deciding source* assigns to the
+  emitted verdict (objective delivery rule → 1.0; flag-forced REJECT →
+  strongest triggered flag's sigmoid; verdict-head routing → head softmax of
+  the emitted verdict). It is **not** calibrated on a held-out set with this
+  toy dataset (documented placeholder per §7.2 — calibrate on a real
+  validation set before production use).

@@ -70,3 +70,7 @@
 - README: install, quickstart (folder -> screened output), 7-stage table, architecture diagram, taxonomy pinning, schemas, caveats.
 - `pip install -e .` works; `pipeline` console script exposes all commands.
 - FULL SUITE: `pytest` -> 99 passed in ~67s.
+
+## Backlog hardening (branch claude/backlog-hardening-mgq09l)
+- Item 1: MultiTaskScreener.forward now guards fully-padded rows (the guard the old comment promised but never implemented): frame 0 is forced valid so attention can't NaN and _masked_min/_masked_max can't pool +/-inf into the verdict head. Row-local; valid rows unchanged. Unit test asserts finite outputs on an all-padding row.
+- Item 2: screen confidence UNIFIED across the three routing paths — confidence = probability the deciding source assigns to the emitted verdict: objective delivery rule -> 1.0 (was 0.99); flag-forced REJECT -> strongest triggered flag's sigmoid (was max(head REJECT prob, flag prob)); head routing -> head softmax of the emitted verdict, including PASS-gate downgrades (unchanged). Documented in stages/screen.py docstring + README; still UNCALIBRATED (toy set too small) per §7.2. Unit tests cover all three paths + the downgrade case without needing ffmpeg/training.

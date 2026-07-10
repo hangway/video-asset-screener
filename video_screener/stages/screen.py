@@ -9,6 +9,22 @@ rule (decode failure / sub-minimum duration) is applied *before* the model, then
 the model's predicted flags + dimension scores are turned into a verdict via the
 shared §1/§5/§6 ``derive_verdict``. Every emitted record is validated against
 the §7.2 schema before it is written.
+
+Confidence (unified definition): the probability the *deciding source* assigns
+to the emitted verdict, on one 0-1 scale across all three routing paths:
+
+- objective delivery rule -> 1.0 (the rule is deterministic, not a model score);
+- flag-forced REJECT      -> the strongest triggered flag's sigmoid probability
+                             (the flags are what forced the verdict);
+- verdict-head routing    -> the head's softmax probability of the *emitted*
+                             verdict (also when the §1 PASS gate downgrades the
+                             head's argmax — then the reported value is the
+                             head's probability for the downgraded verdict and
+                             ``needs_human_review`` is set).
+
+Confidence remains **uncalibrated**: it is not fit to a held-out validation set
+(the bundled 8-clip toy set is too small) — documented placeholder per §7.2;
+calibrate before production use.
 """
 
 from __future__ import annotations
@@ -68,8 +84,9 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
     if decode_failed or too_short:
         why = "corrupt/unplayable stream" if decode_failed else \
               f"duration {dur:.2f}s below usable minimum"
+        # confidence 1.0: the objective rule decides deterministically
         return InferenceRecord(
-            asset_id=aid, verdict="REJECT", confidence=0.99,
+            asset_id=aid, verdict="REJECT", confidence=1.0,
             hard_fail_flags=["delivery_failure"], scores={},
             fix_actions=[], primary_reasons=["delivery_failure"],
             needs_human_review=False,
@@ -96,8 +113,9 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
     # (3) predicted hard-fail flag -> REJECT (hard-fail semantics, §2)
     fix_sig = _fix_signals(pred_scores, gate)
     if pred_flags:
-        conf = max(float(head_probs[VERDICTS.index("REJECT")]),
-                   max(float(flag_probs[HARD_FAIL_FLAGS.index(f)]) for f in pred_flags))
+        # confidence = strongest triggered flag's sigmoid: the flags (not the
+        # verdict head) are the deciding source on this path
+        conf = max(float(flag_probs[HARD_FAIL_FLAGS.index(f)]) for f in pred_flags)
         return InferenceRecord(
             asset_id=aid, verdict="REJECT", confidence=max(0.0, min(1.0, conf)),
             hard_fail_flags=pred_flags, scores={d: float(pred_scores[d]) for d in DIMENSIONS},
@@ -119,6 +137,8 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
         verdict = "REJECT" if (zero_dims and hard_sub) else "FIX"
         needs_review = True
 
+    # confidence = head softmax of the *emitted* verdict (which may be the
+    # PASS-gate downgrade rather than the head argmax)
     final_idx = VERDICTS.index(verdict)
     conf = float(head_probs[final_idx])
     needs_review = needs_review or (
