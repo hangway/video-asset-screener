@@ -58,8 +58,15 @@ class MultiTaskScreener(nn.Module):
     def forward(self, features: torch.Tensor, mask: torch.Tensor) -> dict:
         """features [B,T,feature_dim], mask [B,T] (1 = valid frame)."""
         valid = mask.bool()
+        # Guard: a fully-padded row would break attention (softmax over all
+        # -inf -> NaN) and make _masked_min/_masked_max emit +/-inf into the
+        # verdict head. Treat frame 0 as valid so every row has >=1 valid
+        # frame; the row's output is meaningless but stays finite.
+        all_pad = ~valid.any(dim=1)
+        if all_pad.any():
+            valid = valid.clone()
+            valid[all_pad, 0] = True
         pad_mask = ~valid                                    # True = PAD
-        # Guard: a fully-padded row would break attention; leave >=1 valid.
         frames = self.temporal(features, key_padding_mask=pad_mask)  # [B,T,d]
         clip_embed = _masked_mean(frames, valid)             # [B,d]
 
