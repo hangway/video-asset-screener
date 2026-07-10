@@ -10,7 +10,10 @@ from video_screener.config import PipelineConfig, load_config
 from video_screener.consistency import (
     DEFAULT_SUBJECT,
     ReferenceIndex,
+    SubjectReferences,
+    frame_reference_similarity,
     index_references,
+    score_clip,
 )
 from video_screener.models.encoder import DeterministicEncoder
 
@@ -120,3 +123,40 @@ def test_index_cache_keyed_by_encoder_name(ref_dir, tmp_path):
     other.name = "other-encoder"
     index_references(ref_dir, other, cache)
     assert other.calls == 3  # different encoder -> no cross-encoder cache hits
+
+
+# --------------------- clip-vs-reference scoring math -----------------------
+def _index_of(**subjects) -> ReferenceIndex:
+    return ReferenceIndex(encoder_name="synthetic", subjects={
+        name: SubjectReferences(name, [f"{name}{i}.png" for i in range(len(emb))],
+                                np.asarray(emb, dtype=np.float32))
+        for name, emb in subjects.items()
+    })
+
+
+def test_frame_similarity_is_best_match_per_frame():
+    refs = np.eye(3, 4, dtype=np.float32)          # three reference views
+    frames = np.array([[1, 0, 0, 0],
+                       [0, 2, 0, 0],                # scale must not matter
+                       [1, 1, 0, 0]], dtype=np.float32)
+    pf = frame_reference_similarity(frames, refs)
+    assert np.allclose(pf, [1.0, 1.0, 1 / np.sqrt(2)], atol=1e-6)
+
+
+def test_score_clip_worst_frame_aggregation_and_subject_assignment():
+    idx = _index_of(a=[[1, 0, 0, 0]], b=[[0, 1, 0, 0]])
+    c, s = np.cos(np.pi / 3), np.sin(np.pi / 3)     # 60 degrees off subject a
+    frames = np.array([[1, 0, 0, 0], [c, s, 0, 0]], dtype=np.float32)
+    cons = score_clip(frames, idx)
+    # vs a: per-frame [1.0, 0.5] -> min 0.5 ; vs b: [0.0, 0.866] -> min 0.0
+    assert cons.subject == "a"
+    assert abs(cons.score - 0.5) < 1e-6             # §5 worst frame, not mean
+    assert np.allclose(cons.per_frame, [1.0, 0.5], atol=1e-6)
+    assert abs(cons.per_subject["b"] - 0.0) < 1e-6
+
+
+def test_score_clip_empty_inputs_return_none():
+    idx = _index_of(a=[[1, 0, 0, 0]])
+    assert score_clip(np.zeros((0, 4), dtype=np.float32), idx) is None
+    assert score_clip(np.ones((2, 4), dtype=np.float32),
+                      ReferenceIndex(encoder_name="x")) is None

@@ -65,7 +65,7 @@ NO_FLAGS = [0.05] * len(HARD_FAIL_FLAGS)
 def test_confidence_delivery_rule_is_one(tmp_path):
     cfg = PipelineConfig(workdir=str(tmp_path / "run"))
     bad = SampleResult(frames=[], decode_ok=False, n_decoded=0)
-    rec = _screen_one(None, None, _meta(), bad, cfg, "corrupt")
+    rec, _ = _screen_one(None, None, _meta(), bad, cfg, "corrupt")
     assert rec.verdict == "REJECT"
     assert rec.confidence == 1.0
     assert rec.needs_human_review is False
@@ -77,7 +77,7 @@ def test_confidence_flag_reject_is_strongest_flag_sigmoid(tmp_path):
     flags[0], flags[1] = 0.7, 0.9  # two triggered flags; strongest = 0.9
     # head is (wrongly) confident in PASS: flag path must NOT use head probs
     model = _StubModel([8.0, 0.0, 0.0], flags, LEVEL4)
-    rec = _screen_one(model, _StubEncoder(), _meta(), _ok_sample(), cfg, "flagged")
+    rec, _ = _screen_one(model, _StubEncoder(), _meta(), _ok_sample(), cfg, "flagged")
     assert rec.verdict == "REJECT"
     assert abs(rec.confidence - 0.9) < 1e-6
     assert set(rec.hard_fail_flags) == {HARD_FAIL_FLAGS[0], HARD_FAIL_FLAGS[1]}
@@ -87,7 +87,7 @@ def test_confidence_head_routing_is_softmax_of_emitted_verdict(tmp_path):
     cfg = PipelineConfig(workdir=str(tmp_path / "run"))
     logits = [2.0, 1.0, 0.0]
     model = _StubModel(logits, NO_FLAGS, LEVEL4)
-    rec = _screen_one(model, _StubEncoder(), _meta(), _ok_sample(), cfg, "clean")
+    rec, _ = _screen_one(model, _StubEncoder(), _meta(), _ok_sample(), cfg, "clean")
     assert rec.verdict == "PASS"
     expected = float(torch.softmax(torch.tensor(logits), dim=-1)[VERDICTS.index("PASS")])
     assert abs(rec.confidence - expected) < 1e-6
@@ -100,11 +100,94 @@ def test_confidence_pass_gate_downgrade_uses_emitted_verdict(tmp_path):
     logits = [2.0, 1.0, 0.0]                 # head argmax = PASS
     sub_gate = [0.9, 0.4, 0.3, 0.1]          # dim level 1: below every gate
     model = _StubModel(logits, NO_FLAGS, sub_gate)
-    rec = _screen_one(model, _StubEncoder(), _meta(), _ok_sample(), cfg, "flawed")
+    rec, _ = _screen_one(model, _StubEncoder(), _meta(), _ok_sample(), cfg, "flawed")
     assert rec.verdict == "FIX"              # downgraded, no zero dims
     expected = float(torch.softmax(torch.tensor(logits), dim=-1)[VERDICTS.index("FIX")])
     assert abs(rec.confidence - expected) < 1e-6
     assert rec.needs_human_review is True
+
+
+# ----------------- reference consistency -> flag routing --------------------
+from video_screener.consistency import ReferenceIndex, SubjectReferences
+
+
+class _EmbeddingEncoder:
+    """Stub encoder that returns one fixed embedding per requested path."""
+
+    def __init__(self, embeddings):
+        self._emb = np.asarray(embeddings, dtype=np.float32)
+
+    def encode_paths(self, paths):
+        return self._emb[: len(paths)]
+
+
+def _ref_index(**subjects) -> ReferenceIndex:
+    return ReferenceIndex(encoder_name="stub", subjects={
+        name: SubjectReferences(name, [f"{name}.png"], np.asarray(emb, np.float32))
+        for name, emb in subjects.items()
+    })
+
+
+def test_consistency_below_threshold_triggers_reference_inconsistency(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))  # threshold 0.5
+    idx = _ref_index(hero=[[1.0, 0.0, 0.0, 0.0]])
+    # last frame nearly orthogonal to the reference: best-match cosine 0.3
+    c = 0.3
+    emb = [[1, 0, 0, 0], [1, 0, 0, 0], [c, np.sqrt(1 - c * c), 0, 0]]
+    model = _StubModel([8.0, 0.0, 0.0], NO_FLAGS, LEVEL4)  # head says PASS
+    rec, cons = _screen_one(model, _EmbeddingEncoder(emb), _meta(),
+                            _ok_sample(3), cfg, "offmodel", idx)
+    assert rec.verdict == "REJECT"
+    assert "reference_inconsistency" in rec.hard_fail_flags
+    # confidence = similarity deficit of the deciding consistency check
+    assert abs(rec.confidence - (1.0 - 0.3)) < 1e-4
+    InferenceRecord.model_validate(rec.model_dump())      # §7.2 still valid
+    assert cons["below_threshold"] is True
+    assert cons["subject"] == "hero"
+    assert abs(cons["score"] - 0.3) < 1e-3
+    # worst offender is the off-model frame (index 2)
+    assert cons["worst_frames"][0]["frame_index"] == 2
+    assert abs(cons["worst_frames"][0]["time_sec"] - 1.0) < 1e-6
+
+
+def test_consistency_above_threshold_leaves_routing_alone(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    idx = _ref_index(hero=[[1.0, 0.0, 0.0, 0.0]])
+    emb = [[1, 0, 0, 0], [0.95, 0.1, 0, 0], [0.9, 0.2, 0, 0]]  # all close
+    logits = [2.0, 1.0, 0.0]
+    model = _StubModel(logits, NO_FLAGS, LEVEL4)
+    rec, cons = _screen_one(model, _EmbeddingEncoder(emb), _meta(),
+                            _ok_sample(3), cfg, "onmodel", idx)
+    assert rec.verdict == "PASS"
+    assert rec.hard_fail_flags == []
+    expected = float(torch.softmax(torch.tensor(logits), dim=-1)[VERDICTS.index("PASS")])
+    assert abs(rec.confidence - expected) < 1e-6           # head still decides
+    assert cons["below_threshold"] is False
+    InferenceRecord.model_validate(rec.model_dump())
+
+
+def test_consistency_entry_absent_without_references(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    model = _StubModel([2.0, 1.0, 0.0], NO_FLAGS, LEVEL4)
+    rec, cons = _screen_one(model, _StubEncoder(), _meta(), _ok_sample(), cfg, "noref")
+    assert cons is None and rec.verdict == "PASS"
+
+
+def test_consistency_report_doc_structure(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    idx = _ref_index(hero=[[1.0, 0.0, 0.0, 0.0]], villain=[[0.0, 1.0, 0.0, 0.0]])
+    entries = [
+        {"asset_id": "a", "subject": "hero", "score": 0.9, "per_subject": {},
+         "per_frame": [0.9], "worst_frames": [], "below_threshold": False},
+        {"asset_id": "b", "subject": "villain", "score": 0.1, "per_subject": {},
+         "per_frame": [0.1], "worst_frames": [], "below_threshold": True},
+    ]
+    doc = screen._build_consistency_doc(entries, idx, cfg)
+    assert doc["n_clips"] == 2 and doc["n_below_threshold"] == 1
+    assert doc["threshold"] == cfg.consistency.min_reference_similarity
+    assert doc["subjects"] == {"hero": 1, "villain": 1}
+    assert doc["encoder"] == "stub"
+    json.dumps(doc)  # must be JSON-serializable as written
 
 
 @requires_ffmpeg

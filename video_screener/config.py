@@ -126,6 +126,12 @@ class ConsistencyConfig(BaseModel):
     # Directory of reference images: one subdirectory per subject (loose
     # images fall under subject "default"). None disables consistency checks.
     reference_dir: Optional[str] = None
+    # Clip score = worst-frame best-match cosine vs the assigned subject's
+    # references (§5). Below this the existing reference_inconsistency
+    # hard-fail flag is raised at screen time.
+    min_reference_similarity: float = 0.5
+    # How many worst per-frame offenders to list per clip in the report.
+    report_worst_k: int = 3
 
 
 class ScreenConfig(BaseModel):

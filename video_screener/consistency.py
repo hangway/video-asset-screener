@@ -83,6 +83,61 @@ def _content_digest(paths: list[Path]) -> str:
     return h.hexdigest()[:16]
 
 
+@dataclass
+class ClipConsistency:
+    """Clip-vs-reference consistency for one clip.
+
+    ``score`` follows §5 worst-frame aggregation: per frame take the
+    best-match cosine similarity against the subject's references (a frame is
+    consistent if it matches ANY reference view), then take the MIN over
+    frames (one off-model frame makes the clip inconsistent).
+    """
+
+    subject: str                 # best-matching subject
+    score: float                 # worst-frame best-match cosine, in [-1, 1]
+    per_frame: list[float]       # best-match cosine per (sampled) frame
+    per_subject: dict[str, float]  # worst-frame score against every subject
+
+
+def _normalize_rows(x: np.ndarray) -> np.ndarray:
+    n = np.linalg.norm(x, axis=-1, keepdims=True)
+    return x / np.clip(n, 1e-12, None)
+
+
+def frame_reference_similarity(frame_embeddings: np.ndarray,
+                               ref_embeddings: np.ndarray) -> np.ndarray:
+    """Best-match cosine per frame: [T,D] x [R,D] -> [T] (max over refs)."""
+    sims = _normalize_rows(frame_embeddings) @ _normalize_rows(ref_embeddings).T
+    return sims.max(axis=1)
+
+
+def score_clip(frame_embeddings: np.ndarray,
+               index: ReferenceIndex) -> ClipConsistency | None:
+    """Score a clip's frames against every subject; assign the best subject.
+
+    Returns None when there is nothing to compare (no frames or no reference
+    images)."""
+    if frame_embeddings.size == 0 or not index:
+        return None
+    per_subject: dict[str, float] = {}
+    per_frame_by_subject: dict[str, np.ndarray] = {}
+    for name, refs in index.subjects.items():
+        if refs.embeddings.size == 0:
+            continue
+        pf = frame_reference_similarity(frame_embeddings, refs.embeddings)
+        per_frame_by_subject[name] = pf
+        per_subject[name] = float(pf.min())     # §5 worst-frame
+    if not per_subject:
+        return None
+    best = max(per_subject, key=per_subject.get)
+    return ClipConsistency(
+        subject=best,
+        score=per_subject[best],
+        per_frame=[float(v) for v in per_frame_by_subject[best]],
+        per_subject=per_subject,
+    )
+
+
 def index_references(reference_dir: str | Path, encoder,
                      cache_dir: str | Path) -> ReferenceIndex:
     """Embed all reference images per subject via ``encoder``, with caching.
