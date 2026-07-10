@@ -36,3 +36,8 @@
 - Auto mode: applies sidecar ground truth if present (8/8 for samples -> watermark REJECT), else accepts prelabels. Used by `run all` + tests.
 - TUI gotchas fixed: hidden Input stole focus (disable it + focus ListView so bindings fire); up/down collided with ListView nav (use c/z for scores); Static.render() not .renderable in Textual 8.x.
 - In-terminal 24-bit half-block thumbnail renderer + browser contact-sheet handoff.
+
+## Stage 4 dataset (verified)
+- `pytest tests/test_dataset.py` -> 7 passed. `run dataset` on samples: 7 groups, 0 leakage, split 5/2/1.
+- Leakage prevention: group by phash near-dup cluster_id (from ingest) UNION explicit source_id — NOT by folder. clean_pass+duplicate share cluster -> same split. Split whole groups via deficit-based greedy assignment to hit target fractions.
+- Training export format = annotation record + joined `frames` paths + trainable flag + cluster_id, per-split JSONL. balance_report.json = per-split verdict/flag/score histograms (sums verified == overall).
