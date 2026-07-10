@@ -16,3 +16,9 @@
 - OPEN QUESTION: taxonomy has no dedicated flag for "below minimum duration" (§5 treats min-duration as a verdict rule, not a flag). REJECT (§7.1) requires >=1 flag OR >=1 score of 0, and duration is not a scored dimension. PLACEHOLDER: map sub-minimum-duration -> `delivery_failure` (asset cannot serve downstream). Revisit if taxonomy adds a spec/duration flag.
 - DECISION: delivery_failure detection = ffprobe fails OR frame extraction yields 0 decodable frames OR decode errors. corrupted.mp4 keeps moov (faststart) so ffprobe reports duration, but mdat is truncated -> 0 frames decode; this exercises the decode-failure path.
 - Perceptual-hash check: duplicate==clean (hamming 0); all other sample pairs >=26. Dedup threshold 4 => only the intended duplicate merges.
+
+## Stage 1 ingest (verified)
+- `pytest tests/test_ingest.py` -> 8 passed. `pipeline run ingest` on samples -> 8 assets, 7 unique, 1 duplicate (duplicate->clean_pass), 1 decode failure (corrupted, 0 frames).
+- §5 sampling verified: 5s@1fps -> 5 frames; 2s -> every 0.5s -> 4 frames; 0.29s -> 1 frame.
+- Suppressed OpenCV/libav decode-error spam via OPENCV_FFMPEG_LOGLEVEL=-8 + cv2.setLogLevel(0).
+- Scene detection is best-effort (try/except -> [] on failure); synthetic clips have no hard cuts so uniform sampling dominates.
