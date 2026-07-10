@@ -35,6 +35,26 @@ class IngestConfig(BaseModel):
     frame_format: str = "jpg"
 
 
+class FfprobePrelabelThresholds(BaseModel):
+    """Backend-scoped thresholds for the ffprobe signalstats/blurdetect
+    metrics (their scales differ from the opencv statistics — YDIF is a mean
+    per-pixel luma change, blurdetect is higher-is-blurrier — so opencv
+    numbers must never be reused here)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # blurdetect blurriness bins, DESCENDING: score = #(blur_mean <= bin).
+    # PROVISIONAL until measured calibration on samples/.
+    blur_bins: list[float] = Field(default_factory=lambda: [12.0, 9.0, 6.0, 3.0])
+    # mean-YDIF flicker thresholds (PROVISIONAL until measured calibration)
+    ydif_low: float = 8.0     # above -> borderline flicker (FIX)
+    ydif_high: float = 20.0   # above -> severe flicker
+    # clipping proxy: a frame counts as clipped when its 10th percentile is
+    # pinned to black or its 90th percentile to white
+    clip_ylow_max: float = 4.0
+    clip_yhigh_min: float = 251.0
+
+
 class PrelabelConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -55,6 +75,11 @@ class PrelabelConfig(BaseModel):
     composition_prior: int = 3
     motion_prior: int = 3
     enable_mllm: bool = False              # optional MLLM prelabel (off offline)
+    # Backend-scoped thresholds for metrics_backend="ffprobe" (different
+    # measurement scales; the opencv thresholds above must not be reused).
+    ffprobe: FfprobePrelabelThresholds = Field(
+        default_factory=FfprobePrelabelThresholds
+    )
 
 
 class DatasetConfig(BaseModel):
@@ -174,6 +199,9 @@ class PipelineConfig(BaseModel):
     taxonomy_version: str = TAXONOMY_VERSION
     workdir: str = "runs/default"
     video_dirs: list[str] = Field(default_factory=lambda: ["samples"])
+    # Technical-metrics measurement backend: "opencv" (hand-rolled frame
+    # statistics) or "ffprobe" (signalstats/blurdetect, QCTools lineage).
+    metrics_backend: str = "opencv"
     # Optional explicit gate minimums; defaults to taxonomy GATE_MIN. Keys
     # must be canonical dimension names.
     gate_min: dict[str, int] = Field(default_factory=lambda: dict(GATE_MIN))
@@ -186,6 +214,15 @@ class PipelineConfig(BaseModel):
     evaluate: EvaluateConfig = Field(default_factory=EvaluateConfig)
     screen: ScreenConfig = Field(default_factory=ScreenConfig)
     consistency: ConsistencyConfig = Field(default_factory=ConsistencyConfig)
+
+    @field_validator("metrics_backend")
+    @classmethod
+    def _backend_allowed(cls, v: str) -> str:
+        if v not in ("opencv", "ffprobe"):
+            raise ValueError(
+                f"metrics_backend {v!r} not in ('opencv', 'ffprobe')"
+            )
+        return v
 
     @field_validator("taxonomy_version")
     @classmethod

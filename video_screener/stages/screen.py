@@ -81,6 +81,7 @@ from ..taxonomy_schema import (
 )
 from ..utils import video
 from ..utils.io import write_json, write_jsonl
+from ..utils.metrics_backend import build_metrics_backend, segment_metric_summary
 from .train import load_model
 
 _FIX_FOR_DIM = {
@@ -107,7 +108,8 @@ def _fix_signals(scores: dict[str, int], gate: dict[str, int]) -> list[str]:
 
 def _consistency_entry(aid: str, feats, frame_times: list[Optional[float]],
                        ref_index: ReferenceIndex, cfg: PipelineConfig,
-                       duration: Optional[float] = None) -> Optional[dict]:
+                       duration: Optional[float] = None,
+                       tech_series: Optional[list[dict]] = None) -> Optional[dict]:
     """Score one clip's frame embeddings against the reference index and
     build its consistency_report.json entry."""
     cons = score_clip(feats, ref_index)
@@ -129,6 +131,12 @@ def _consistency_entry(aid: str, feats, frame_times: list[Optional[float]],
         cons.per_frame, [float(v) for v in drift], frame_times, duration,
         cfg.consistency.edge_window_sec, cfg.consistency.edge_outlier_sigma,
     )
+    if edge is not None and tech_series:
+        # per-segment technical evidence from the metrics backend; the
+        # outlier criteria (and routing) stay embedding-based
+        edge["technical"] = segment_metric_summary(
+            tech_series, duration, cfg.consistency.edge_window_sec
+        )
     return {
         "asset_id": aid,
         "subject": cons.subject,
@@ -152,6 +160,7 @@ def _consistency_entry(aid: str, feats, frame_times: list[Optional[float]],
 def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResult,
                 cfg: PipelineConfig, aid: str,
                 ref_index: Optional[ReferenceIndex] = None,
+                metrics_backend=None,
                 ) -> tuple[InferenceRecord, Optional[dict]]:
     gate = cfg.resolved_gate_min()
     dur = meta.duration_sec
@@ -199,8 +208,12 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
     cons_entry = None
     cons_strength = None
     if ref_index is not None:
+        tech_series = (
+            metrics_backend.frame_series(meta.path, [f.path for f in sample.frames])
+            if metrics_backend is not None else None
+        )
         cons_entry = _consistency_entry(aid, feats, frame_times, ref_index, cfg,
-                                        duration=dur)
+                                        duration=dur, tech_series=tech_series)
         if cons_entry is not None and cons_entry["below_threshold"]:
             if "reference_inconsistency" not in pred_flags:
                 pred_flags.append("reference_inconsistency")
@@ -315,6 +328,7 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
         ref_index = index_references(
             cfg.consistency.reference_dir, encoder, cfg.root / "reference_cache"
         )
+    mbackend = build_metrics_backend(cfg)
 
     dirs = video_dir or cfg.video_dirs
     paths = video.find_videos(dirs)
@@ -331,7 +345,8 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
         taken.add(aid)
         meta = video.probe(path)
         sample = video.extract_frames(path, cfg.ingest, frames_root / aid, meta.duration_sec)
-        rec, cons = _screen_one(model, encoder, meta, sample, cfg, aid, ref_index)
+        rec, cons = _screen_one(model, encoder, meta, sample, cfg, aid, ref_index,
+                                metrics_backend=mbackend)
         if cons is not None:
             cons_entries.append(cons)
         InferenceRecord.model_validate(rec.model_dump())  # contract check
