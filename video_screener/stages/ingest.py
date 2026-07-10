@@ -18,6 +18,7 @@ from typing import Any
 from ..config import PipelineConfig
 from ..taxonomy_schema import TAXONOMY_VERSION, duration_bucket
 from ..utils import hashing, video
+from ..utils.ffprobe_metrics import probe_intervals
 from ..utils.io import write_json
 
 
@@ -51,6 +52,24 @@ def run(cfg: PipelineConfig) -> dict[str, Any]:
         frame_paths = [f.path for f in sample.frames]
         signature = hashing.clip_signature(frame_paths)
 
+        # objective interval evidence (freezedetect/blackdetect); best-effort:
+        # a failed scan leaves the lists empty, prelabel rules simply see none
+        freeze_iv: list[dict] = []
+        black_iv: list[dict] = []
+        if cfg.ingest.interval_scan and sample.decode_ok:
+            scan = probe_intervals(
+                path,
+                freeze_noise_db=cfg.ingest.freeze_noise_db,
+                freeze_min_sec=cfg.ingest.freeze_min_sec,
+                black_min_sec=cfg.ingest.black_min_sec,
+                black_pic_th=cfg.ingest.black_pic_th,
+            )
+            if scan.ok:
+                freeze_iv = [{k: round(v, 3) for k, v in iv.items()}
+                             for iv in scan.freeze_intervals]
+                black_iv = [{k: round(v, 3) for k, v in iv.items()}
+                            for iv in scan.black_intervals]
+
         dur = meta.duration_sec
         assets.append({
             "asset_id": aid,
@@ -71,6 +90,8 @@ def run(cfg: PipelineConfig) -> dict[str, Any]:
                 for f in sample.frames
             ],
             "signature": signature,
+            "freeze_intervals": freeze_iv,
+            "black_intervals": black_iv,
         })
 
     # Near-duplicate clustering at clip level.

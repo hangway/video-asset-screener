@@ -77,6 +77,89 @@ def parse_signal_frames(doc: dict) -> list[dict]:
     return out
 
 
+@dataclass
+class IntervalScan:
+    """freezedetect/blackdetect intervals for one clip (seconds).
+
+    Intervals are ``{"start": s, "end": e}``; a detection still open at end
+    of stream is closed at the last decoded timestamp."""
+
+    freeze_intervals: list[dict] = field(default_factory=list)
+    black_intervals: list[dict] = field(default_factory=list)
+    last_pts: float | None = None
+    ok: bool = False
+    error: str = ""
+
+
+_FREEZE_START = "lavfi.freezedetect.freeze_start"
+_FREEZE_END = "lavfi.freezedetect.freeze_end"
+_BLACK_START = "lavfi.black_start"
+_BLACK_END = "lavfi.black_end"
+
+
+def parse_interval_frames(doc: dict) -> IntervalScan:
+    """Pair up start/end interval tags from ffprobe JSON; close open
+    intervals at the last seen timestamp."""
+    scan = IntervalScan()
+    open_freeze: float | None = None
+    open_black: float | None = None
+    for fr in doc.get("frames", []) or []:
+        pts = _to_float(fr.get("pts_time"))
+        if pts is not None:
+            scan.last_pts = pts
+        tags = fr.get("tags") or {}
+        fs, fe = _to_float(tags.get(_FREEZE_START)), _to_float(tags.get(_FREEZE_END))
+        bs, be = _to_float(tags.get(_BLACK_START)), _to_float(tags.get(_BLACK_END))
+        if fs is not None:
+            open_freeze = fs
+        if fe is not None and open_freeze is not None:
+            scan.freeze_intervals.append({"start": open_freeze, "end": fe})
+            open_freeze = None
+        if bs is not None:
+            open_black = bs
+        if be is not None and open_black is not None:
+            scan.black_intervals.append({"start": open_black, "end": be})
+            open_black = None
+    end = scan.last_pts
+    if open_freeze is not None and end is not None and end > open_freeze:
+        scan.freeze_intervals.append({"start": open_freeze, "end": end})
+    if open_black is not None and end is not None and end > open_black:
+        scan.black_intervals.append({"start": open_black, "end": end})
+    return scan
+
+
+def probe_intervals(path: str | Path, freeze_noise_db: float = -60.0,
+                    freeze_min_sec: float = 1.0, black_min_sec: float = 0.5,
+                    black_pic_th: float = 0.98,
+                    timeout: int = 300) -> IntervalScan:
+    """Detect frozen-video and black intervals in ONE ffprobe call
+    (``freezedetect`` + ``blackdetect``). Never raises; decode failures
+    return ``ok=False`` with the diagnostic preserved."""
+    graph = (
+        f"movie={_escape_lavfi_path(str(path))},"
+        f"freezedetect=n={freeze_noise_db}dB:d={freeze_min_sec},"
+        f"blackdetect=d={black_min_sec}:pic_th={black_pic_th}"
+    )
+    tags = ",".join([_FREEZE_START, _FREEZE_END, _BLACK_START, _BLACK_END])
+    cmd = [
+        "ffprobe", "-v", "error", "-f", "lavfi", "-i", graph,
+        "-show_entries", f"frame=pts_time:frame_tags={tags}", "-of", "json",
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except Exception as e:  # pragma: no cover - env dependent
+        return IntervalScan(error=f"ffprobe exec failed: {e}")
+    if res.returncode != 0:
+        return IntervalScan(error=res.stderr.strip()[-400:] or "ffprobe failed")
+    try:
+        doc = json.loads(res.stdout)
+    except json.JSONDecodeError:
+        return IntervalScan(error="ffprobe produced no parseable output")
+    scan = parse_interval_frames(doc)
+    scan.ok = True
+    return scan
+
+
 def probe_signal_stats(path: str | Path, timeout: int = 300) -> SignalStats:
     """Run signalstats+blurdetect over ``path`` in ONE ffprobe call.
 

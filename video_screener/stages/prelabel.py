@@ -57,6 +57,42 @@ def _prelabel_asset(asset: dict, cfg: PipelineConfig,
             "flag_or_dimension": "delivery_failure",
         })
 
+    # -- objective interval evidence (ingest freezedetect/blackdetect) -----
+    freeze_iv = asset.get("freeze_intervals") or []
+    black_iv = asset.get("black_intervals") or []
+
+    def _coverage(intervals: list[dict]) -> float:
+        if not dur:
+            return 0.0
+        return sum(max(0.0, iv["end"] - iv["start"]) for iv in intervals) / dur
+
+    fcov, bcov = _coverage(freeze_iv), _coverage(black_iv)
+    if "delivery_failure" not in flags and \
+            max(fcov, bcov) >= pcfg.still_coverage_reject_frac:
+        # no usable content: the clip is frozen/black essentially throughout
+        # -> EXISTING delivery_failure semantics (§2.8), no new flag.
+        # An all-black clip is also static, so prefer the more specific
+        # "black" description when black coverage itself clears the bar.
+        kind, cov, iv0 = (("black", bcov, black_iv[0])
+                          if bcov >= pcfg.still_coverage_reject_frac
+                          else ("frozen", fcov, freeze_iv[0]))
+        flags.append("delivery_failure")
+        why = f"video {kind} for ~{cov:.0%} of its duration"
+        reject_reason = f"{why} (delivery_failure)"
+        frame_evidence.append({
+            "frame_time_sec": iv0["start"], "issue": why,
+            "flag_or_dimension": "delivery_failure",
+        })
+    else:
+        # partial intervals: temporal evidence for the human annotate stage
+        for kind, ivs in (("frozen", freeze_iv), ("black", black_iv)):
+            for iv in ivs:
+                frame_evidence.append({
+                    "frame_time_sec": iv["start"],
+                    "issue": f"{kind} segment {iv['start']:.2f}s-{iv['end']:.2f}s",
+                    "flag_or_dimension": "temporal_stability",
+                })
+
     # -- technical dimension scores (via the pluggable metrics backend) ----
     scores: dict[str, Optional[int]] = {d: None for d in DIMENSIONS}
     if frame_paths:

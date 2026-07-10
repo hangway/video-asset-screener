@@ -33,6 +33,13 @@ class IngestConfig(BaseModel):
     phash_size: int = 16                   # perceptual hash size
     dedup_hamming_threshold: int = 4       # <= this Hamming distance => near-dup
     frame_format: str = "jpg"
+    # Objective interval scan (ffprobe freezedetect + blackdetect): records
+    # frozen-video and black intervals per asset as evidence for prelabel.
+    interval_scan: bool = True
+    freeze_noise_db: float = -60.0         # freezedetect noise tolerance
+    freeze_min_sec: float = 1.0            # minimum freeze duration to report
+    black_min_sec: float = 0.5             # minimum black interval to report
+    black_pic_th: float = 0.98             # fraction of black pixels per frame
 
 
 class FfprobePrelabelThresholds(BaseModel):
@@ -80,6 +87,11 @@ class PrelabelConfig(BaseModel):
     composition_prior: int = 3
     motion_prior: int = 3
     enable_mllm: bool = False              # optional MLLM prelabel (off offline)
+    # Frozen-video / black intervals covering at least this fraction of the
+    # clip mean there is no usable content -> the EXISTING delivery_failure
+    # flag (§2.8: asset cannot be properly ingested downstream). Shorter
+    # intervals become frame_evidence only.
+    still_coverage_reject_frac: float = 0.9
     # Backend-scoped thresholds for metrics_backend="ffprobe" (different
     # measurement scales; the opencv thresholds above must not be reused).
     ffprobe: FfprobePrelabelThresholds = Field(
