@@ -184,3 +184,28 @@ def test_screen_auto_uses_vimax_registry(tmp_path):
     assert _resolve_reference_dir(cfg) == str(tmp_path / "explicit")  # wins
     plain = PipelineConfig(workdir=str(tmp_path / "run2"))
     assert _resolve_reference_dir(plain) is None
+
+
+# --------------------------- vimax preset config ----------------------------
+def test_vimax_preset_loads_and_scopes_changes(repo_root):
+    """configs/vimax.yaml only tunes sampling density + edge sensitivity;
+    every gate/threshold that encodes taxonomy policy matches the defaults
+    (global defaults themselves are untouched by the preset's existence)."""
+    preset = load_config(repo_root / "configs" / "vimax.yaml")
+    default = PipelineConfig()
+    # the intended deltas
+    assert preset.ingest.short_clip_threshold_sec == 9.0
+    assert preset.consistency.edge_outlier_sigma == 2.5
+    # policy-bearing settings stay identical to the defaults
+    assert preset.gate_min == default.gate_min
+    assert preset.consistency.min_reference_similarity == \
+        default.consistency.min_reference_similarity
+    assert preset.consistency.max_frame_drift == default.consistency.max_frame_drift
+    assert preset.prelabel.still_coverage_reject_frac == \
+        default.prelabel.still_coverage_reject_frac
+    assert preset.screen.review_confidence_threshold == \
+        default.screen.review_confidence_threshold
+    assert preset.metrics_backend == default.metrics_backend
+    # and the global defaults were not silently changed by this batch
+    assert default.ingest.short_clip_threshold_sec == 4.0
+    assert default.consistency.edge_outlier_sigma == 3.0
