@@ -254,17 +254,29 @@ def index_references(reference_dir: str | Path, encoder,
     behaviour as frame encoding); a subject whose images all fail to decode
     is kept with an empty embedding matrix.
     """
+    from .vimax import portrait_subjects  # late import: vimax must not import us
+
     reference_dir = Path(reference_dir)
     if not reference_dir.is_dir():
         raise FileNotFoundError(f"reference_dir not found: {reference_dir}")
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    # ViMax portrait registries are auto-detected by structure and mapped to
+    # the same subject->images shape; flat / subject-subdir layouts unchanged
+    subject_images = portrait_subjects(reference_dir)
+    if subject_images is None:
+        subject_images = _list_subject_images(reference_dir)
+
     enc_key = encoder.name.replace(":", "_").replace("/", "_")
     index = ReferenceIndex(encoder_name=encoder.name)
-    for subject, paths in _list_subject_images(reference_dir).items():
+    for subject, paths in subject_images.items():
         digest = _content_digest(paths)
-        cache = cache_dir / f"{enc_key}__{subject}__{digest}.npy"
+        # ViMax identifiers can carry spaces/odd chars -> sanitize for the
+        # cache filename only (the index keeps the original subject name)
+        safe_subject = "".join(c if c.isalnum() or c in "-_" else "_"
+                               for c in subject)
+        cache = cache_dir / f"{enc_key}__{safe_subject}__{digest}.npy"
         if cache.exists():
             emb = np.load(cache)
         else:

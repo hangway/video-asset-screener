@@ -93,6 +93,79 @@ def discover_shots(working_dir: str | Path) -> list[VimaxShot]:
     return shots
 
 
+PORTRAIT_REGISTRY_FILENAME = "character_portraits_registry.json"
+PORTRAIT_DIRNAME = "character_portraits"
+_PORTRAIT_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+
+def _resolve_portrait_path(root: Path, p: str | None) -> Path | None:
+    """Resolve a registry ``path`` value. Registry paths are written at
+    generation time (see docs/audits/vimax-layout.md §3) and go stale when a
+    working_dir is copied/moved — fall back to re-rooting the
+    ``character_portraits/...`` suffix under ``root``."""
+    if not p:
+        return None
+    cand = Path(p)
+    if cand.is_file():
+        return cand
+    parts = cand.parts
+    if PORTRAIT_DIRNAME in parts:
+        rerooted = root.joinpath(*parts[parts.index(PORTRAIT_DIRNAME):])
+        if rerooted.is_file():
+            return rerooted
+    return None
+
+
+def portrait_subjects(root: str | Path) -> dict[str, list[Path]] | None:
+    """Detect a ViMax portrait registry under ``root`` and map it to the
+    subject->images shape the ReferenceIndex builder consumes.
+
+    Detection is structural: ``character_portraits_registry.json`` first
+    (authoritative), else a ``character_portraits/{idx}_{identifier}/`` dir
+    tree (idea2video may sanitize dir names differently, so the registry
+    wins when both exist). Returns None when ``root`` is not ViMax-shaped —
+    flat and subject-subdir reference layouts keep their existing behaviour.
+    Image lists are sorted by filename so an equivalent flat dir produces an
+    identical index (best-match cosine is order-invariant anyway).
+    """
+    root = Path(root)
+    reg = root / PORTRAIT_REGISTRY_FILENAME
+    subjects: dict[str, list[Path]] = {}
+    if reg.is_file():
+        try:
+            doc = json.loads(reg.read_text())
+        except (json.JSONDecodeError, OSError):
+            doc = None
+        if isinstance(doc, dict):
+            for ident, views in doc.items():
+                if not isinstance(views, dict):
+                    continue
+                paths = []
+                for _, view in sorted(views.items()):
+                    rp = _resolve_portrait_path(
+                        root, view.get("path") if isinstance(view, dict) else None
+                    )
+                    if rp is not None:
+                        paths.append(rp)
+                if paths:
+                    subjects[ident] = sorted(paths, key=lambda p: p.name)
+            if subjects:
+                return subjects
+    pdir = root / PORTRAIT_DIRNAME
+    if pdir.is_dir():
+        for d in sorted(pdir.iterdir()):
+            if not d.is_dir():
+                continue
+            ident = d.name.split("_", 1)[1] if "_" in d.name else d.name
+            imgs = sorted(p for p in d.iterdir()
+                          if p.is_file() and p.suffix.lower() in _PORTRAIT_EXTS)
+            if imgs:
+                subjects[ident] = imgs
+        if subjects:
+            return subjects
+    return None
+
+
 def manifest_entry(shot: VimaxShot, asset_id: str) -> dict:
     """vimax_manifest.json row: the free-form context that must not enter
     the closed §7.1/§7.2 records."""

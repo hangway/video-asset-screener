@@ -311,6 +311,22 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
     ), cons_entry
 
 
+def _resolve_reference_dir(cfg: PipelineConfig) -> Optional[str]:
+    """Explicit consistency.reference_dir wins; otherwise a ViMax working_dir
+    containing a portrait registry (by file or by structure) is used
+    automatically so `screen --vimax-dir` gets consistency checks for free."""
+    if cfg.consistency.reference_dir:
+        return cfg.consistency.reference_dir
+    if cfg.vimax.working_dir:
+        from ..vimax import PORTRAIT_DIRNAME, PORTRAIT_REGISTRY_FILENAME
+
+        wd = Path(cfg.vimax.working_dir)
+        if (wd / PORTRAIT_REGISTRY_FILENAME).is_file() or \
+                (wd / PORTRAIT_DIRNAME).is_dir():
+            return str(wd)
+    return None
+
+
 def run(cfg: PipelineConfig, out: Optional[str] = None,
         video_dir: Optional[list[str]] = None) -> dict[str, Any]:
     ckpt_path = cfg.stage_dir("train") / "model.pt"
@@ -325,10 +341,9 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
 
     # optional reference index for consistency checks (same encoder, cached)
     ref_index: Optional[ReferenceIndex] = None
-    if cfg.consistency.reference_dir:
-        ref_index = index_references(
-            cfg.consistency.reference_dir, encoder, cfg.root / "reference_cache"
-        )
+    ref_dir = _resolve_reference_dir(cfg)
+    if ref_dir:
+        ref_index = index_references(ref_dir, encoder, cfg.root / "reference_cache")
     mbackend = build_metrics_backend(cfg)
 
     # source discovery: a ViMax working_dir preset, or plain video dirs

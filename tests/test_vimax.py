@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -98,3 +99,88 @@ def test_config_vimax_key(tmp_path):
     p.write_text("vimax:\n  shots_dir: oops\n")            # closed section
     with pytest.raises(Exception):
         load_config(p)
+
+
+# ----------------- portrait registry -> ReferenceIndex ----------------------
+import numpy as np
+from PIL import Image
+
+from video_screener.consistency import index_references
+from video_screener.models.encoder import DeterministicEncoder
+from video_screener.stages.screen import _resolve_reference_dir
+from video_screener.vimax import portrait_subjects
+
+
+def _img(path, seed):
+    rng = np.random.RandomState(seed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(rng.randint(0, 255, (24, 24, 3), dtype=np.uint8)).save(path)
+
+
+def _vimax_registry_dir(root, stale_paths=False):
+    """working_dir with character_portraits/0_hero/{front,side,back}.png and
+    the registry json exactly as script2video writes it."""
+    pdir = root / "character_portraits" / "0_hero"
+    for i, view in enumerate(("front", "side", "back")):
+        _img(pdir / f"{view}.png", seed=10 + i)
+    base = "/moved/away" if stale_paths else str(root)
+    reg = {
+        "hero": {
+            view: {"path": f"{base}/character_portraits/0_hero/{view}.png",
+                   "description": f"A {view} view portrait of hero."}
+            for view in ("front", "side", "back")
+        }
+    }
+    (root / "character_portraits_registry.json").write_text(json.dumps(reg))
+    return root
+
+
+def test_registry_maps_to_same_index_as_flat_dir(tmp_path):
+    wd = _vimax_registry_dir(tmp_path / "wd")
+    flat = tmp_path / "flat" / "hero"
+    for i, view in enumerate(("front", "side", "back")):
+        _img(flat / f"{view}.png", seed=10 + i)      # same bytes as registry
+
+    enc = DeterministicEncoder(feature_dim=64)
+    idx_reg = index_references(wd, enc, tmp_path / "c1")
+    idx_flat = index_references(tmp_path / "flat", enc, tmp_path / "c2")
+    assert set(idx_reg.subjects) == set(idx_flat.subjects) == {"hero"}
+    assert np.allclose(idx_reg.subjects["hero"].embeddings,
+                       idx_flat.subjects["hero"].embeddings)
+    assert [Path(p).name for p in idx_reg.subjects["hero"].paths] == \
+           [Path(p).name for p in idx_flat.subjects["hero"].paths]
+
+
+def test_registry_stale_paths_rerooted(tmp_path):
+    wd = _vimax_registry_dir(tmp_path / "wd", stale_paths=True)
+    subjects = portrait_subjects(wd)
+    assert set(subjects) == {"hero"} and len(subjects["hero"]) == 3
+    assert all(p.is_file() for p in subjects["hero"])
+
+
+def test_structural_fallback_without_registry_json(tmp_path):
+    wd = tmp_path / "wd"
+    _img(wd / "character_portraits" / "0_hero" / "front.png", seed=1)
+    _img(wd / "character_portraits" / "1_Dr_Vex" / "front.png", seed=2)
+    subjects = portrait_subjects(wd)
+    assert set(subjects) == {"hero", "Dr_Vex"}       # idx prefix stripped
+
+
+def test_flat_dirs_not_misdetected_as_vimax(tmp_path):
+    flat = tmp_path / "flat"
+    _img(flat / "hero" / "a.png", seed=1)
+    assert portrait_subjects(flat) is None            # existing behaviour holds
+    enc = DeterministicEncoder(feature_dim=64)
+    idx = index_references(flat, enc, tmp_path / "cache")
+    assert set(idx.subjects) == {"hero"}
+
+
+def test_screen_auto_uses_vimax_registry(tmp_path):
+    wd = _vimax_registry_dir(tmp_path / "wd")
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    cfg.vimax.working_dir = str(wd)
+    assert _resolve_reference_dir(cfg) == str(wd)     # auto-detected
+    cfg.consistency.reference_dir = str(tmp_path / "explicit")
+    assert _resolve_reference_dir(cfg) == str(tmp_path / "explicit")  # wins
+    plain = PipelineConfig(workdir=str(tmp_path / "run2"))
+    assert _resolve_reference_dir(plain) is None
