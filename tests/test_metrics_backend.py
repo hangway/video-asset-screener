@@ -37,16 +37,17 @@ def frame_dir(tmp_path):
 
 # ------------------------------- config ------------------------------------
 def test_config_backend_default_and_validation():
-    assert PipelineConfig().metrics_backend == "opencv"   # default stays opencv
-    assert PipelineConfig(metrics_backend="ffprobe").metrics_backend == "ffprobe"
+    # default flipped to ffprobe after the item-4 verdict-parity gate passed
+    assert PipelineConfig().metrics_backend == "ffprobe"
+    assert PipelineConfig(metrics_backend="opencv").metrics_backend == "opencv"
     with pytest.raises(Exception):
         PipelineConfig(metrics_backend="imagemagick")
 
 
 def test_build_backend_resolves_by_name():
-    assert isinstance(build_metrics_backend(PipelineConfig()), OpenCVMetricsBackend)
-    cfg = PipelineConfig(metrics_backend="ffprobe")
-    assert isinstance(build_metrics_backend(cfg), FfprobeMetricsBackend)
+    assert isinstance(build_metrics_backend(PipelineConfig()), FfprobeMetricsBackend)
+    cfg = PipelineConfig(metrics_backend="opencv")
+    assert isinstance(build_metrics_backend(cfg), OpenCVMetricsBackend)
 
 
 # --------------------------- interface contract ----------------------------

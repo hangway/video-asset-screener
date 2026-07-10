@@ -120,6 +120,19 @@ def test_prelabel_ffprobe_backend_matches_sidecars_at_least_as_well(tmp_path, sy
         AnnotationRecord.model_validate(r)
 
 
+@requires_ffmpeg
+def test_backend_verdict_parity_on_samples(tmp_path, synth_samples):
+    """Item-4 parity gate: prelabel under BOTH metrics backends must emit the
+    same verdict for every sample clip. This gate is what justified flipping
+    the default backend to ffprobe."""
+    ocv = _run(tmp_path / "ocv", synth_samples, metrics_backend="opencv")
+    ffp = _run(tmp_path / "ffp", synth_samples, metrics_backend="ffprobe")
+    assert set(ocv) == set(ffp)
+    diverged = {a: (ocv[a]["verdict"], ffp[a]["verdict"])
+                for a in ocv if ocv[a]["verdict"] != ffp[a]["verdict"]}
+    assert not diverged, f"backend verdict divergence: {diverged}"
+
+
 # --------------------------- unit: derive_verdict --------------------------
 def test_derive_verdict_flag_forces_reject():
     out = derive_verdict({}, ["watermark_contamination"], {}, )

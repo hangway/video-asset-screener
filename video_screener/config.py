@@ -204,9 +204,12 @@ class PipelineConfig(BaseModel):
     taxonomy_version: str = TAXONOMY_VERSION
     workdir: str = "runs/default"
     video_dirs: list[str] = Field(default_factory=lambda: ["samples"])
-    # Technical-metrics measurement backend: "opencv" (hand-rolled frame
-    # statistics) or "ffprobe" (signalstats/blurdetect, QCTools lineage).
-    metrics_backend: str = "opencv"
+    # Technical-metrics measurement backend: "ffprobe" (signalstats/
+    # blurdetect, QCTools lineage — default since the sample verdict-parity
+    # gate passed) or "opencv" (the original hand-rolled statistics, kept as
+    # the fallback; the ffprobe backend also degrades to it per clip when a
+    # probe fails or the binary is missing).
+    metrics_backend: str = "ffprobe"
     # Optional explicit gate minimums; defaults to taxonomy GATE_MIN. Keys
     # must be canonical dimension names.
     gate_min: dict[str, int] = Field(default_factory=lambda: dict(GATE_MIN))
