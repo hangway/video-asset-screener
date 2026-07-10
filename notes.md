@@ -50,3 +50,9 @@
 - CORAL rank-consistency enforced by monotonically decreasing thresholds (softplus gaps); predicted level = #(P(y>k)>0.5). N/A dims masked from loss. Flags pos-weighted BCE (miss costs > false alarm) — unit-tested.
 - §5 pooling unit-tested: worst=min (temporal/motion), mean (others), max (flags); respects padding mask. Resume continues from checkpoint (last weights); best_model kept for inference.
 - CAVEAT: 8-clip sample set is a pipeline demo, not an accuracy benchmark; the only visual flag positive (watermark) lands in val, so the flag head sees 0 train positives — expected with this toy set.
+
+## Stage 6 evaluate (verified)
+- `pytest tests/test_evaluate.py` -> 7 passed. Metric math (confusion, dim MAE/exact/within1, flag P/R/F1 + micro, stratified, consistency) unit-tested on synthetic arrays with hand-computed expected values.
+- eval_metrics.py is pure (no torch/IO). evaluate.py runs model over a split, emits confusion matrix, per-dim ordinal metrics, per-flag P/R, stratified-by-aesthetic_family+motion_complexity, worst-failure gallery, and the §1 verdict-vs-flags/dims CONSISTENCY CHECK + rate.
+- Diagnostic full-set eval: model correct on trained clean_pass/duplicate/flicker; misses held-out watermark (flag unseen in train) + tooshort (duration-based REJECT, not model-learnable) + underexposed. Model self-consistency rate = 0% inconsistent (good). Confirms screen must apply the objective delivery_failure rule before the model.
+- Default split=test (1 clip on samples -> thin but valid); `--split all` gives a richer diagnostic. Tiny-data thinness is a property of the 8-clip toy set, not the pipeline.
