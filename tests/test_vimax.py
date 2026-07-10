@@ -209,3 +209,57 @@ def test_vimax_preset_loads_and_scopes_changes(repo_root):
     # and the global defaults were not silently changed by this batch
     assert default.ingest.short_clip_threshold_sec == 4.0
     assert default.consistency.edge_outlier_sigma == 3.0
+
+
+# ------------------------- end to end on a fake run --------------------------
+from tests.conftest import requires_ffmpeg
+
+
+@requires_ffmpeg
+def test_screen_vimax_dir_end_to_end(tmp_path, synth_samples):
+    """Full `screen --vimax-dir` pass over a synthesized working_dir: §7.2
+    outputs validate, reference matching ran off the auto-detected portrait
+    registry, and the report carries shot idx + prompt context."""
+    import shutil
+
+    from video_screener.schema import InferenceRecord
+    from video_screener.stages import screen
+    from tests.test_screen import _prep
+
+    # fake ViMax working_dir: two shots (clean + flicker clips reused from the
+    # sample builders) + a portrait registry
+    wd = _vimax_registry_dir(tmp_path / "working_dir")
+    for idx, src in ((0, "clean_pass.mp4"), (1, "flicker.mp4")):
+        d = _shot_dir(wd, idx, video=False)
+        shutil.copyfile(synth_samples / src, d / "video.mp4")
+
+    cfg = _prep(tmp_path, synth_samples)          # train on the sample set
+    cfg.vimax.working_dir = str(wd)
+    out = tmp_path / "screened"
+    summary = screen.run(cfg, out=str(out))
+
+    # §7.2 contract on every record; shot idx encoded in asset_id
+    rows = [json.loads(l)
+            for l in (out / "screen_results.jsonl").read_text().splitlines()]
+    assert summary["n_screened"] == 2 and summary["n_vimax_shots"] == 2
+    assert {r["asset_id"] for r in rows} == {"shot_000", "shot_001"}
+    for r in rows:
+        InferenceRecord.model_validate(r)
+        assert 0.0 <= r["confidence"] <= 1.0
+
+    # reference matching ran off the auto-detected registry
+    cons = json.loads((out / "consistency_report.json").read_text())
+    assert cons["subjects"] == {"hero": 3}
+    assert {c["asset_id"] for c in cons["clips"]} == {"shot_000", "shot_001"}
+    assert all(c["subject"] == "hero" for c in cons["clips"])
+
+    # manifest sidecar carries the free-form prompt context
+    manifest = json.loads((out / "vimax_manifest.json").read_text())
+    assert manifest["n_shots"] == 2
+    assert manifest["shots"][0]["prompt"] == "<Alice> waves in shot 0"
+
+    # report includes the shot idx + escaped prompt (never raw <Alice>)
+    html = (out / "screen_report.html").read_text()
+    assert "#0" in html and "#1" in html and "<b>shot</b>" in html
+    assert "&lt;Alice&gt; waves" in html
+    assert "<Alice>" not in html
