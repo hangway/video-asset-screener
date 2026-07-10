@@ -117,6 +117,17 @@ class EvaluateConfig(BaseModel):
     worst_gallery_size: int = 12
 
 
+class ConsistencyConfig(BaseModel):
+    """Reference-consistency settings (wired to the existing
+    ``reference_inconsistency`` flag; taxonomy v0.3.1 unchanged)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Directory of reference images: one subdirectory per subject (loose
+    # images fall under subject "default"). None disables consistency checks.
+    reference_dir: Optional[str] = None
+
+
 class ScreenConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -158,6 +169,7 @@ class PipelineConfig(BaseModel):
     train: TrainConfig = Field(default_factory=TrainConfig)
     evaluate: EvaluateConfig = Field(default_factory=EvaluateConfig)
     screen: ScreenConfig = Field(default_factory=ScreenConfig)
+    consistency: ConsistencyConfig = Field(default_factory=ConsistencyConfig)
 
     @field_validator("taxonomy_version")
     @classmethod

@@ -91,8 +91,13 @@ def run_evaluate(config: Optional[str] = typer.Option(None), workdir: Optional[s
 @run_app.command("screen")
 def run_screen(config: Optional[str] = typer.Option(None), workdir: Optional[str] = None,
                video_dir: Optional[list[str]] = typer.Option(None),
-               out: Optional[str] = typer.Option(None, help="output dir for screen report")):
+               out: Optional[str] = typer.Option(None, help="output dir for screen report"),
+               reference_dir: Optional[str] = typer.Option(
+                   None, help="reference images (one subdir per subject) for "
+                              "consistency checks")):
     cfg = _load(config, workdir, video_dir)
+    if reference_dir:
+        cfg.consistency.reference_dir = reference_dir
     from .stages import screen
 
     _print_summary(screen.run(cfg, out=out))
@@ -100,9 +105,14 @@ def run_screen(config: Optional[str] = typer.Option(None), workdir: Optional[str
 
 @run_app.command("all")
 def run_all(config: Optional[str] = typer.Option(None), workdir: Optional[str] = None,
-            video_dir: Optional[list[str]] = typer.Option(None)):
+            video_dir: Optional[list[str]] = typer.Option(None),
+            reference_dir: Optional[str] = typer.Option(
+                None, help="reference images (one subdir per subject) for "
+                           "consistency checks")):
     """Run the full pipeline end to end on the configured video dirs."""
     cfg = _load(config, workdir, video_dir)
+    if reference_dir:
+        cfg.consistency.reference_dir = reference_dir
     from .stages import annotate
 
     for stage in STAGES:
