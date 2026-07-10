@@ -62,3 +62,11 @@
 - Routing = objective delivery_failure override (corrupted/tooshort -> REJECT before model) -> predicted-flag override (-> REJECT) -> HEAD-PRIMARY verdict + §1 PASS-gate enforcement (a PASS clip that has a sub-gate predicted dim is downgraded to FIX/REJECT + needs_review).
 - DECISION: use the verdict HEAD as primary (grounded in dims+flags, robust) rather than re-deriving from brittle per-dim level predictions — earlier derive-from-dims flipped flicker to REJECT via spurious dim-0s. Head-primary gives flicker->FIX(deflicker) matching truth. 6/8 exactly correct; watermark->PASS (flag head had 0 train positives) and underexposed->PASS (subtle held-out FIX) are documented model/data limits.
 - Confidence = head softmax of final verdict (0.99 for objective delivery_failure; max flag prob for flag REJECT). CAVEAT: confidence is not calibrated on a held-out set (8-clip toy set too small) — documented placeholder per §7.2.
+
+## Task 10 dashboard + skills + README + run all (verified)
+- `pipeline run all` runs all 7 stages end to end on samples/ (verified full console output this session).
+- Dashboard: `dashboard/template.html` (self-contained viewer, vanilla JS) + `dashboard/build.py` (injects run artifacts + base64 thumbnails between /*__DATA__*/ markers). `pytest tests/test_dashboard.py` -> 2 passed. Output 57KB, no external URLs, all stages green, 8-clip dataset viewer with filters, verdict confusion matrix, training curve.
+- Skills: .claude/skills/{run-stage,inspect-dataset,compare-runs}/SKILL.md.
+- README: install, quickstart (folder -> screened output), 7-stage table, architecture diagram, taxonomy pinning, schemas, caveats.
+- `pip install -e .` works; `pipeline` console script exposes all commands.
+- FULL SUITE: `pytest` -> 99 passed in ~67s.

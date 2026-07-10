@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Video Asset Screener — Dashboard</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--muted:#8b949e;--fg:#e6edf3;
+        --pass:#2ea043;--fix:#bf8700;--reject:#f85149;--accent:#388bfd}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:22px 30px;border-bottom:1px solid var(--border)}
+  h1{margin:0;font-size:22px} h2{font-size:16px;margin:0 0 12px;color:var(--fg)}
+  .sub{color:var(--muted);font-size:13px;margin-top:6px}
+  main{padding:22px 30px;max-width:1200px;margin:0 auto}
+  section{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+          padding:18px 20px;margin-bottom:20px}
+  .stages{display:flex;flex-wrap:wrap;gap:10px}
+  .stage{border:1px solid var(--border);border-radius:8px;padding:10px 14px;min-width:130px}
+  .stage .name{font-weight:600;text-transform:capitalize}
+  .stage .st{font-size:12px;margin-top:4px} .ok{color:var(--pass)} .no{color:var(--muted)}
+  .kv{color:var(--muted);font-size:12px;margin-top:4px;font-family:ui-monospace,monospace}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border:1px solid var(--border);padding:6px 9px;text-align:center}
+  th{background:#1c2128;color:var(--muted);font-weight:600}
+  .diag{background:#1f6f3f33}
+  .badge{color:#fff;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700}
+  .b-PASS{background:var(--pass)} .b-FIX{background:var(--fix)} .b-REJECT{background:var(--reject)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+  .card{background:#0d1117;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .card img{width:100%;display:block;aspect-ratio:4/3;object-fit:cover;background:#000}
+  .card .noimg{aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;
+               color:var(--muted);background:#000;font-size:12px}
+  .card .body{padding:9px 11px}
+  .card .top{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+  .card .aid{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .card .meta{font-size:11px;color:var(--muted);line-height:1.5;font-family:ui-monospace,monospace}
+  .tag{display:inline-block;background:#1c2128;border:1px solid var(--border);border-radius:5px;
+       padding:0 5px;margin:1px 2px 0 0;font-size:10px;color:var(--fg)}
+  .filters{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .filters button{background:#1c2128;color:var(--fg);border:1px solid var(--border);
+                  border-radius:20px;padding:5px 14px;cursor:pointer;font-size:12px}
+  .filters button.active{background:var(--accent);border-color:var(--accent)}
+  .curve{width:100%;height:120px}
+  .empty{color:var(--muted);font-size:13px}
+  .flex{display:flex;gap:20px;flex-wrap:wrap} .flex>div{flex:1;min-width:260px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>window.__RUN__ = /*__DATA__*/{"empty":true}/*__END__*/;</script>
+<script>
+const R = window.__RUN__;
+const el = (h) => { const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstChild; };
+const esc = (s) => String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const badge = (v) => `<span class="badge b-${v}">${v}</span>`;
+
+function stageStatus(){
+  const order=['ingest','prelabel','annotate','dataset','train','evaluate','screen'];
+  return `<section><h2>Pipeline stages</h2><div class="stages">`+order.map(s=>{
+    const info=(R.stages||{})[s]||{};
+    const done=info.done; return `<div class="stage"><div class="name">${s}</div>
+      <div class="st ${done?'ok':'no'}">${done?'✓ complete':'— not run'}</div>
+      <div class="kv">${esc(info.metric||'')}</div></div>`;
+  }).join('')+`</div></section>`;
+}
+
+function trainCurve(){
+  const t=R.train; if(!t||!t.history||!t.history.length) return '';
+  const h=t.history, W=560,H=120,pad=24;
+  const losses=h.map(e=>e.train_loss).filter(x=>x!=null);
+  const mx=Math.max(...losses), mn=Math.min(...losses);
+  const X=i=>pad+(W-2*pad)*(h.length<2?0:i/(h.length-1));
+  const Y=v=>H-pad-(H-2*pad)*((v-mn)/((mx-mn)||1));
+  const line=(key,color)=>{const pts=h.map((e,i)=>e[key]==null?null:`${X(i)},${Y(e[key])}`).filter(Boolean).join(' ');
+    return pts?`<polyline fill="none" stroke="${color}" stroke-width="2" points="${pts}"/>`:''};
+  return `<section><h2>Training</h2>
+    <div class="kv">encoder ${esc(t.encoder)} · feature_dim ${t.feature_dim} · ${h.length} epochs · best_val ${t.best_val}</div>
+    <svg class="curve" viewBox="0 0 ${W} ${H}">
+      ${line('train_loss','#388bfd')}${line('val_loss','#bf8700')}
+      <text x="${pad}" y="14" fill="#8b949e" font-size="11">loss (blue=train, amber=val) — top ${mx.toFixed(2)} bottom ${mn.toFixed(2)}</text>
+    </svg></section>`;
+}
+
+function evalSection(){
+  const e=R.evaluate; if(!e) return '';
+  const cm=e.verdict, labels=cm.labels;
+  const rows=cm.matrix.map((row,i)=>`<tr><th>${labels[i]}</th>`+row.map((c,j)=>
+    `<td class="${i===j?'diag':''}">${c}</td>`).join('')+`</tr>`).join('');
+  const dims=Object.entries(e.dimensions).map(([d,m])=>`<tr><td style="text-align:left">${d}</td>
+    <td>${m.n}</td><td>${m.mae==null?'–':m.mae.toFixed(2)}</td>
+    <td>${m.exact_acc==null?'–':(m.exact_acc*100).toFixed(0)+'%'}</td>
+    <td>${m.within1_acc==null?'–':(m.within1_acc*100).toFixed(0)+'%'}</td></tr>`).join('');
+  const flags=Object.entries(e.flags.per_flag).filter(([,m])=>m.support>0||m.fp>0)
+    .map(([f,m])=>`<tr><td style="text-align:left">${f}</td><td>${m.support}</td>
+    <td>${m.precision==null?'–':m.precision.toFixed(2)}</td>
+    <td>${m.recall==null?'–':m.recall.toFixed(2)}</td>
+    <td>${m.f1==null?'–':m.f1.toFixed(2)}</td></tr>`).join('')
+    || `<tr><td colspan="5" class="empty">no flags with support in this split</td></tr>`;
+  return `<section><h2>Evaluation <span class="kv">(split: ${esc(e.split)}, n=${e.n_evaluated})</span></h2>
+    <div class="flex">
+      <div><h2 style="font-size:13px">Verdict confusion (rows=true)</h2>
+        <table><tr><th>t\\p</th>${labels.map(l=>`<th>${l}</th>`).join('')}</tr>${rows}</table>
+        <div class="kv">accuracy ${(cm.accuracy*100).toFixed(0)}% · macro-F1 ${cm.macro_f1.toFixed(2)}
+          · consistency-inconsistent ${(e.consistency.rate*100).toFixed(0)}%</div></div>
+      <div><h2 style="font-size:13px">Per-dimension</h2>
+        <table><tr><th>dim</th><th>n</th><th>MAE</th><th>exact</th><th>±1</th></tr>${dims}</table></div>
+    </div>
+    <div style="margin-top:14px"><h2 style="font-size:13px">Per-flag</h2>
+      <table><tr><th>flag</th><th>support</th><th>P</th><th>R</th><th>F1</th></tr>${flags}</table></div>
+  </section>`;
+}
+
+function datasetViewer(){
+  const assets=R.assets||[];
+  if(!assets.length) return '';
+  const filters=['all','PASS','FIX','REJECT','train','val','test'];
+  const cards=assets.map(a=>{
+    const img=a.thumb?`<img src="${a.thumb}">`:`<div class="noimg">no frame</div>`;
+    const flags=(a.flags||[]).map(f=>`<span class="tag">${f}</span>`).join('')||'';
+    const scores=Object.entries(a.scores||{}).map(([d,v])=>`${d.split('_')[0]}:${v}`).join(' ');
+    const dup=a.duplicate_of?`<span class="tag">dup→${a.duplicate_of}</span>`:'';
+    return `<div class="card" data-v="${a.verdict}" data-s="${a.split||''}">
+      ${img}<div class="body"><div class="top">${badge(a.verdict)}<span class="aid" title="${esc(a.asset_id)}">${esc(a.asset_id)}</span></div>
+      <div class="meta">${a.split?`split:${a.split} · `:''}${a.duration_sec?a.duration_sec.toFixed(1)+'s':''}
+      ${a.decode_ok===false?' · <span style="color:var(--reject)">decode-fail</span>':''}<br>${esc(scores)}<br>${flags}${dup}</div>
+      </div></div>`;
+  }).join('');
+  return `<section><h2>Dataset viewer <span class="kv">(${assets.length} clips)</span></h2>
+    <div class="filters">${filters.map((f,i)=>`<button class="${i===0?'active':''}" data-f="${f}">${f}</button>`).join('')}</div>
+    <div class="grid" id="grid">${cards}</div></section>`;
+}
+
+function render(){
+  if(R.empty){document.getElementById('app').innerHTML=
+    '<header><h1>Video Asset Screener</h1><div class="sub">No run data — build with <code>pipeline dashboard</code></div></header>';return;}
+  document.getElementById('app').innerHTML =
+    `<header><h1>Video Asset Screener — Dashboard</h1>
+      <div class="sub">taxonomy v${esc(R.taxonomy_version)} · workdir <code>${esc(R.workdir)}</code>
+      ${R.screen?` · screened ${R.screen.n}: PASS ${R.screen.counts.PASS}/FIX ${R.screen.counts.FIX}/REJECT ${R.screen.counts.REJECT}`:''}</div></header>
+    <main>${stageStatus()}${evalSection()}${trainCurve()}${datasetViewer()}</main>`;
+  const grid=document.getElementById('grid');
+  if(grid) document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('.filters button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); const f=b.dataset.f;
+    grid.querySelectorAll('.card').forEach(c=>{
+      const show=f==='all'||c.dataset.v===f||c.dataset.s===f; c.style.display=show?'':'none';});
+  });
+}
+render();
+</script>
+</body>
+</html>
