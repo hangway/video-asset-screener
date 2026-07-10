@@ -1,0 +1,33 @@
+{
+  "asset_id": "corrupted",
+  "file": "corrupted.mp4",
+  "expected_verdict": "REJECT",
+  "expected_flags": [
+    "delivery_failure"
+  ],
+  "expected_scores": {},
+  "fix_actions": [],
+  "reject_reason": "truncated/corrupted stream, cannot be decoded (delivery_failure)",
+  "context_tags": {
+    "shot_type": [
+      "WS"
+    ],
+    "asset_role": [
+      "supporting"
+    ],
+    "source": [
+      "generated"
+    ],
+    "content_category": [
+      "abstract_motion"
+    ],
+    "aesthetic_family": [
+      "abstract_experimental"
+    ],
+    "motion_complexity": "moderate_natural",
+    "duration_bucket": "short",
+    "text_presence": "none"
+  },
+  "note": "valid mp4 truncated to a tiny prefix -> decode failure",
+  "near_duplicate_of": null
+}

@@ -1,0 +1,38 @@
+{
+  "asset_id": "duplicate",
+  "file": "duplicate.mp4",
+  "expected_verdict": "PASS",
+  "expected_flags": [],
+  "expected_scores": {
+    "sharpness_focus": 4,
+    "exposure_dynamic_range": 3,
+    "composition_framing": 3,
+    "prompt_fidelity_coherence": 3,
+    "temporal_stability": 4,
+    "motion_quality": 3
+  },
+  "fix_actions": [],
+  "reject_reason": "",
+  "context_tags": {
+    "shot_type": [
+      "WS"
+    ],
+    "asset_role": [
+      "supporting"
+    ],
+    "source": [
+      "generated"
+    ],
+    "content_category": [
+      "abstract_motion"
+    ],
+    "aesthetic_family": [
+      "abstract_experimental"
+    ],
+    "motion_complexity": "moderate_natural",
+    "duration_bucket": "short",
+    "text_presence": "none"
+  },
+  "note": "exact byte-duplicate of clean_pass.mp4 (ingest dedup must catch it)",
+  "near_duplicate_of": "clean_pass"
+}

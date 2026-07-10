@@ -1,0 +1,40 @@
+{
+  "asset_id": "watermark",
+  "file": "watermark.mp4",
+  "expected_verdict": "REJECT",
+  "expected_flags": [
+    "watermark_contamination"
+  ],
+  "expected_scores": {
+    "sharpness_focus": 3,
+    "exposure_dynamic_range": 3,
+    "composition_framing": 3,
+    "prompt_fidelity_coherence": 2,
+    "temporal_stability": 3,
+    "motion_quality": 3
+  },
+  "fix_actions": [],
+  "reject_reason": "burned-in watermark / logo overlay (watermark_contamination)",
+  "context_tags": {
+    "shot_type": [
+      "WS"
+    ],
+    "asset_role": [
+      "supporting"
+    ],
+    "source": [
+      "generated"
+    ],
+    "content_category": [
+      "text_overlay"
+    ],
+    "aesthetic_family": [
+      "abstract_experimental"
+    ],
+    "motion_complexity": "moderate_natural",
+    "duration_bucket": "short",
+    "text_presence": "prominent"
+  },
+  "note": "burned-in watermark text + logo box in corner",
+  "near_duplicate_of": null
+}
