@@ -224,6 +224,47 @@ def test_consistency_report_doc_structure(tmp_path):
     json.dumps(doc)  # must be JSON-serializable as written
 
 
+def test_report_ranking_and_reference_gallery(tmp_path):
+    """With a consistency doc, screen_report.html gains a reference gallery
+    and a per-subject ranking table ordered best -> worst; without one, the
+    report is unchanged (no consistency section)."""
+    from PIL import Image
+
+    ref_png = tmp_path / "hero.png"
+    Image.new("RGB", (32, 32), (200, 40, 40)).save(ref_png)
+    idx = ReferenceIndex(encoder_name="stub", subjects={
+        "hero": SubjectReferences("hero", [str(ref_png)],
+                                  np.ones((1, 4), np.float32)),
+    })
+    entries = [
+        {"asset_id": "worst_clip", "subject": "hero", "score": 0.2,
+         "per_subject": {}, "per_frame": [0.2], "worst_frames": [],
+         "below_threshold": True, "drift": [], "max_drift": 0.5,
+         "max_drift_between": None, "drift_exceeds_threshold": True},
+        {"asset_id": "best_clip", "subject": "hero", "score": 0.9,
+         "per_subject": {}, "per_frame": [0.9], "worst_frames": [],
+         "below_threshold": False, "drift": [], "max_drift": 0.01,
+         "max_drift_between": None, "drift_exceeds_threshold": False},
+    ]
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    doc = screen._build_consistency_doc(entries, idx, cfg)
+    rows = [{"asset_id": "best_clip", "verdict": "PASS", "confidence": 0.9,
+             "hard_fail_flags": [], "scores": {}, "fix_actions": [],
+             "primary_reasons": [], "needs_human_review": False, "thumb": ""}]
+    routing = {"n": 1, "n_needs_review": 0,
+               "counts": {"PASS": 1, "FIX": 0, "REJECT": 0}}
+
+    html = screen._build_report(rows, routing, doc, idx)
+    assert "Reference consistency" in html
+    assert "data:image/jpeg;base64," in html          # embedded ref gallery
+    assert html.index("best_clip</td>") < html.index("worst_clip</td>")  # ranked
+    assert "⚑ inconsistent" in html and "⚠ drift" in html
+    assert "http://" not in html and "https://" not in html  # self-contained
+
+    plain = screen._build_report(rows, routing)        # no references -> no section
+    assert "Reference consistency" not in plain
+
+
 @requires_ffmpeg
 def test_screen_output_contract(tmp_path, synth_samples):
     cfg = _prep(tmp_path, synth_samples)

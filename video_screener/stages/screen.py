@@ -331,13 +331,14 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
         "results_path": str(out_dir / "screen_results.jsonl"),
         "report_path": str(out_dir / "screen_report.html"),
     }
+    cons_doc = None
     if ref_index is not None:
         cons_doc = _build_consistency_doc(cons_entries, ref_index, cfg)
         write_json(out_dir / "consistency_report.json", cons_doc)
         summary["consistency_report_path"] = str(out_dir / "consistency_report.json")
         summary["n_reference_inconsistent"] = cons_doc["n_below_threshold"]
 
-    html = _build_report(report_rows, routing_doc)
+    html = _build_report(report_rows, routing_doc, cons_doc, ref_index)
     (out_dir / "screen_report.html").write_text(html)
 
     return summary
@@ -380,8 +381,55 @@ def _thumb_data_uri(frame_path: Optional[str], max_w: int = 240) -> str:
 _BADGE = {"PASS": "#1a7f37", "FIX": "#9a6700", "REJECT": "#cf222e"}
 
 
-def _build_report(rows: list[dict], routing: dict) -> str:
+def _consistency_sections(cons_doc: dict,
+                          ref_index: Optional[ReferenceIndex]) -> str:
+    """Reference gallery + per-subject consistency ranking (report sections)."""
+    # gallery: embedded reference thumbnails per subject
+    galleries = []
+    if ref_index is not None:
+        for name, refs in ref_index.subjects.items():
+            thumbs = "".join(
+                f'<img src="{u}" title="{Path(p).name}">'
+                for p in refs.paths if (u := _thumb_data_uri(p, max_w=96))
+            )
+            galleries.append(
+                f'<div class="subj"><span class="sname">{name}</span> '
+                f'({len(refs.paths)} refs) {thumbs}</div>'
+            )
+    # ranking: per subject, clips ordered best -> worst consistency score
+    by_subject: dict[str, list[dict]] = {}
+    for e in cons_doc.get("clips", []):
+        by_subject.setdefault(e["subject"], []).append(e)
+    tables = []
+    for name in sorted(by_subject):
+        ranked = sorted(by_subject[name], key=lambda e: e["score"], reverse=True)
+        rows_html = "".join(
+            f'<tr class="{"below" if e["below_threshold"] else ""}">'
+            f'<td>{i + 1}</td><td>{e["asset_id"]}</td>'
+            f'<td>{e["score"]:.3f}</td><td>{e.get("max_drift", 0):.3f}</td>'
+            f'<td>{"⚑ inconsistent" if e["below_threshold"] else ""}'
+            f'{" ⚠ drift" if e.get("drift_exceeds_threshold") else ""}</td></tr>'
+            for i, e in enumerate(ranked)
+        )
+        tables.append(
+            f'<h3>{name}</h3><table class="rank">'
+            f'<tr><th>#</th><th>asset</th><th>consistency</th>'
+            f'<th>max drift</th><th></th></tr>{rows_html}</table>'
+        )
+    return f"""<section class="consistency">
+<h2>Reference consistency</h2>
+<div class="sum">threshold {cons_doc['threshold']} ·
+{cons_doc['n_below_threshold']} below threshold ·
+{cons_doc['n_drift_flagged']} drift-flagged</div>
+<div class="gallery">{''.join(galleries)}</div>
+{''.join(tables)}</section>"""
+
+
+def _build_report(rows: list[dict], routing: dict,
+                  cons_doc: Optional[dict] = None,
+                  ref_index: Optional[ReferenceIndex] = None) -> str:
     counts = routing["counts"]
+    cons_html = _consistency_sections(cons_doc, ref_index) if cons_doc else ""
     cards = []
     for r in rows:
         color = _BADGE.get(r["verdict"], "#555")
@@ -416,6 +464,15 @@ h1{{margin:0 0 6px;font-size:20px}} .sum{{color:#8b949e;font-size:14px}}
 .aid{{font-weight:600}} .conf{{color:#8b949e;font-size:12px;margin-left:auto}}
 .row{{font-size:13px;color:#c9d1d9;margin:3px 0}} .row b{{color:#8b949e}}
 .scores{{color:#8b949e;font-family:ui-monospace,monospace;font-size:12px;margin-top:6px}}
+.consistency{{padding:20px 28px;border-bottom:1px solid #30363d}}
+.consistency h2{{margin:0 0 6px;font-size:17px}} .consistency h3{{margin:14px 0 6px;font-size:14px;color:#c9d1d9}}
+.gallery .subj{{margin:8px 0;font-size:13px;color:#c9d1d9}}
+.gallery .sname{{font-weight:600}}
+.gallery img{{height:48px;border-radius:4px;margin:0 3px;vertical-align:middle;border:1px solid #30363d}}
+table.rank{{border-collapse:collapse;font-size:13px}}
+table.rank th,table.rank td{{padding:4px 12px;text-align:left;border-bottom:1px solid #21262d}}
+table.rank th{{color:#8b949e;font-weight:600}}
+table.rank tr.below td{{color:#f85149}}
 </style></head><body>
 <header><h1>Video Asset Usability Screening</h1>
 <div class="sum">taxonomy v{TAXONOMY_VERSION} · {routing['n']} clips screened ·
@@ -424,4 +481,4 @@ h1{{margin:0 0 6px;font-size:20px}} .sum{{color:#8b949e;font-size:14px}}
 <span style="color:{_BADGE['PASS']}">PASS {counts['PASS']}</span>
 <span style="color:{_BADGE['FIX']}">FIX {counts['FIX']}</span>
 <span style="color:{_BADGE['REJECT']}">REJECT {counts['REJECT']}</span></div>
-</header><div class="grid">{''.join(cards)}</div></body></html>"""
+</header>{cons_html}<div class="grid">{''.join(cards)}</div></body></html>"""
