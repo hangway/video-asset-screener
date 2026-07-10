@@ -118,14 +118,16 @@ class FfprobeMetricsBackend:
         vals = {k: [f[k] for f in stats.frames if f.get(k) is not None]
                 for k in ("YAVG", "YDIF", "YLOW", "YHIGH", "blur")}
         mean = {k: (float(np.mean(v)) if v else 0.0) for k, v in vals.items()}
-        # exposure: YAVG shares the 0-255 luma scale with the opencv path; the
-        # clipping proxy is the fraction of frames whose 10th/90th percentiles
-        # are pinned to the extremes (crushed shadows / blown highlights)
+        # exposure: YAVG shares the 0-255 luma scale with the opencv path; a
+        # frame counts as clipped only when it is MOSTLY crushed (10th
+        # percentile pinned white / 90th percentile pinned black) — matching
+        # the "critical detail loss" semantics of the opencv per-pixel
+        # clip_fraction, so bright-but-detailed flicker frames don't count
         n = max(len(stats.frames), 1)
         clip_frac = sum(
             1 for f in stats.frames
-            if (f.get("YLOW") is not None and f["YLOW"] <= fcfg.clip_ylow_max)
-            or (f.get("YHIGH") is not None and f["YHIGH"] >= fcfg.clip_yhigh_min)
+            if (f.get("YLOW") is not None and f["YLOW"] >= fcfg.clip_white_ylow_min)
+            or (f.get("YHIGH") is not None and f["YHIGH"] <= fcfg.clip_black_yhigh_max)
         ) / n
         exp_s, exp_fix = M.exposure_score(mean["YAVG"], clip_frac, pcfg)
         # sharpness: blurdetect is higher-is-blurrier -> descending bins

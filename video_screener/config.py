@@ -43,16 +43,21 @@ class FfprobePrelabelThresholds(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # Calibrated by MEASUREMENT on samples/ (see notes.md "signal-layer
+    # upgrade"): clean/duplicate blur=7.63, lowres=15.60, flicker=4.73,
+    # underexposed=5.98, watermark=3.58; YDIF clean=3.24, flicker=7.36,
+    # others <2; no sample is mostly-crushed (clip fraction 0.0).
     # blurdetect blurriness bins, DESCENDING: score = #(blur_mean <= bin).
-    # PROVISIONAL until measured calibration on samples/.
-    blur_bins: list[float] = Field(default_factory=lambda: [12.0, 9.0, 6.0, 3.0])
-    # mean-YDIF flicker thresholds (PROVISIONAL until measured calibration)
-    ydif_low: float = 8.0     # above -> borderline flicker (FIX)
-    ydif_high: float = 20.0   # above -> severe flicker
-    # clipping proxy: a frame counts as clipped when its 10th percentile is
-    # pinned to black or its 90th percentile to white
-    clip_ylow_max: float = 4.0
-    clip_yhigh_min: float = 251.0
+    blur_bins: list[float] = Field(default_factory=lambda: [15.0, 12.0, 10.0, 8.0])
+    # mean-YDIF flicker thresholds (mean abs per-pixel luma change / frame)
+    ydif_low: float = 5.0     # above -> borderline flicker (FIX)
+    ydif_high: float = 12.0   # above -> severe flicker
+    # clipping proxy: a frame counts as clipped when it is mostly crushed —
+    # 10th percentile pinned white (YLOW >= this) or 90th percentile pinned
+    # black (YHIGH <= this). The clip's clipped-frame fraction is compared
+    # against the shared exposure_clip_fraction.
+    clip_white_ylow_min: float = 247.0
+    clip_black_yhigh_max: float = 8.0
 
 
 class PrelabelConfig(BaseModel):
