@@ -56,3 +56,9 @@
 - eval_metrics.py is pure (no torch/IO). evaluate.py runs model over a split, emits confusion matrix, per-dim ordinal metrics, per-flag P/R, stratified-by-aesthetic_family+motion_complexity, worst-failure gallery, and the §1 verdict-vs-flags/dims CONSISTENCY CHECK + rate.
 - Diagnostic full-set eval: model correct on trained clean_pass/duplicate/flicker; misses held-out watermark (flag unseen in train) + tooshort (duration-based REJECT, not model-learnable) + underexposed. Model self-consistency rate = 0% inconsistent (good). Confirms screen must apply the objective delivery_failure rule before the model.
 - Default split=test (1 clip on samples -> thin but valid); `--split all` gives a richer diagnostic. Tiny-data thinness is a property of the 8-clip toy set, not the pipeline.
+
+## Stage 7 screen (verified)
+- `pytest tests/test_screen.py` -> 6 passed. `run screen` on samples: 8 clips, all §7.2-valid, PASS4/FIX2/REJECT2; HTML report self-contained (50KB, embedded base64 thumbnails, no external URLs).
+- Routing = objective delivery_failure override (corrupted/tooshort -> REJECT before model) -> predicted-flag override (-> REJECT) -> HEAD-PRIMARY verdict + §1 PASS-gate enforcement (a PASS clip that has a sub-gate predicted dim is downgraded to FIX/REJECT + needs_review).
+- DECISION: use the verdict HEAD as primary (grounded in dims+flags, robust) rather than re-deriving from brittle per-dim level predictions — earlier derive-from-dims flipped flicker to REJECT via spurious dim-0s. Head-primary gives flicker->FIX(deflicker) matching truth. 6/8 exactly correct; watermark->PASS (flag head had 0 train positives) and underexposed->PASS (subtle held-out FIX) are documented model/data limits.
+- Confidence = head softmax of final verdict (0.99 for objective delivery_failure; max flag prob for flag REJECT). CAVEAT: confidence is not calibrated on a held-out set (8-clip toy set too small) — documented placeholder per §7.2.

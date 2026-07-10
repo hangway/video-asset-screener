@@ -96,7 +96,7 @@ def test_coral_loss_masks_na():
 def test_coral_loss_all_masked_is_zero_grad():
     probs = torch.rand(3, 4, requires_grad=True)
     loss = coral_loss(probs, torch.tensor([-1, -1, -1]))
-    assert float(loss) == 0.0
+    assert float(loss.detach()) == 0.0
     loss.backward()  # should not error
 
 
