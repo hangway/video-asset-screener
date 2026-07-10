@@ -112,8 +112,13 @@ def run_all(config: Optional[str] = typer.Option(None), workdir: Optional[str] =
         else:
             summary = _dispatch(stage, cfg)
         _print_summary(summary)
+    # build the dashboard from the run artifacts
+    from dashboard.build import build_dashboard
+
+    dash = build_dashboard(cfg.workdir, Path(cfg.workdir) / "dashboard.html")
     console.rule("[bold green]pipeline complete")
     console.print(f"artifacts in [cyan]{cfg.workdir}[/cyan]")
+    console.print(f"dashboard: [cyan]{dash}[/cyan]")
 
 
 @app.command("samples")
