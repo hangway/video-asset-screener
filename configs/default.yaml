@@ -4,6 +4,10 @@ taxonomy_version: "0.3.1"
 workdir: runs/default
 video_dirs:
   - samples
+# Technical-metrics backend: ffprobe (signalstats/blurdetect, QCTools lineage)
+# or opencv (hand-rolled fallback). ffprobe degrades to opencv per clip when a
+# probe fails.
+metrics_backend: ffprobe
 
 ingest:
   fps: 1.0

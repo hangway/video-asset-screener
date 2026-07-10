@@ -27,11 +27,12 @@ from ..taxonomy_schema import (
     TAXONOMY_VERSION,
     duration_bucket,
 )
-from ..utils import metrics as M
 from ..utils.io import read_json, write_jsonl
+from ..utils.metrics_backend import build_metrics_backend
 
 
-def _prelabel_asset(asset: dict, cfg: PipelineConfig) -> AnnotationRecord:
+def _prelabel_asset(asset: dict, cfg: PipelineConfig,
+                    backend=None) -> AnnotationRecord:
     pcfg = cfg.prelabel
     gate = cfg.resolved_gate_min()
     aid = asset["asset_id"]
@@ -56,17 +57,51 @@ def _prelabel_asset(asset: dict, cfg: PipelineConfig) -> AnnotationRecord:
             "flag_or_dimension": "delivery_failure",
         })
 
-    # -- technical dimension scores ---------------------------------------
+    # -- objective interval evidence (ingest freezedetect/blackdetect) -----
+    freeze_iv = asset.get("freeze_intervals") or []
+    black_iv = asset.get("black_intervals") or []
+
+    def _coverage(intervals: list[dict]) -> float:
+        if not dur:
+            return 0.0
+        return sum(max(0.0, iv["end"] - iv["start"]) for iv in intervals) / dur
+
+    fcov, bcov = _coverage(freeze_iv), _coverage(black_iv)
+    if "delivery_failure" not in flags and \
+            max(fcov, bcov) >= pcfg.still_coverage_reject_frac:
+        # no usable content: the clip is frozen/black essentially throughout
+        # -> EXISTING delivery_failure semantics (§2.8), no new flag.
+        # An all-black clip is also static, so prefer the more specific
+        # "black" description when black coverage itself clears the bar.
+        kind, cov, iv0 = (("black", bcov, black_iv[0])
+                          if bcov >= pcfg.still_coverage_reject_frac
+                          else ("frozen", fcov, freeze_iv[0]))
+        flags.append("delivery_failure")
+        why = f"video {kind} for ~{cov:.0%} of its duration"
+        reject_reason = f"{why} (delivery_failure)"
+        frame_evidence.append({
+            "frame_time_sec": iv0["start"], "issue": why,
+            "flag_or_dimension": "delivery_failure",
+        })
+    else:
+        # partial intervals: temporal evidence for the human annotate stage
+        for kind, ivs in (("frozen", freeze_iv), ("black", black_iv)):
+            for iv in ivs:
+                frame_evidence.append({
+                    "frame_time_sec": iv["start"],
+                    "issue": f"{kind} segment {iv['start']:.2f}s-{iv['end']:.2f}s",
+                    "flag_or_dimension": "temporal_stability",
+                })
+
+    # -- technical dimension scores (via the pluggable metrics backend) ----
     scores: dict[str, Optional[int]] = {d: None for d in DIMENSIONS}
     if frame_paths:
-        cm = M.compute_clip_metrics(frame_paths)
-        scores["sharpness_focus"] = M.sharpness_score(cm.sharpness_var, pcfg)
-        exp_s, exp_fix = M.exposure_score(cm.brightness, cm.clip_fraction, pcfg)
-        scores["exposure_dynamic_range"] = exp_s
-        fix_signals += exp_fix
-        temp_s, temp_fix = M.temporal_score(cm.brightness_std, pcfg)
-        scores["temporal_stability"] = temp_s
-        fix_signals += temp_fix
+        backend = backend or build_metrics_backend(cfg)
+        ta = backend.assess(asset.get("file_path"), frame_paths, pcfg)
+        scores["sharpness_focus"] = ta.sharpness
+        scores["exposure_dynamic_range"] = ta.exposure
+        scores["temporal_stability"] = ta.temporal
+        fix_signals += ta.fix_signals
         # Priors for dims not assessable from pixels alone.
         scores["composition_framing"] = pcfg.composition_prior
         scores["motion_quality"] = pcfg.motion_prior
@@ -119,10 +154,11 @@ def run(cfg: PipelineConfig) -> dict[str, Any]:
             f"ingest index not found at {index_path}; run `pipeline run ingest` first"
         )
     index = read_json(index_path)
+    backend = build_metrics_backend(cfg)
     records: list[dict] = []
     verdict_counts: dict[str, int] = {"PASS": 0, "FIX": 0, "REJECT": 0}
     for asset in index["assets"]:
-        rec = _prelabel_asset(asset, cfg)
+        rec = _prelabel_asset(asset, cfg, backend=backend)
         records.append(rec.model_dump())
         verdict_counts[rec.verdict] += 1
 
@@ -132,6 +168,7 @@ def run(cfg: PipelineConfig) -> dict[str, Any]:
         "stage": "prelabel",
         "n_records": len(records),
         "verdicts": verdict_counts,
+        "metrics_backend": backend.name,
         "prelabels_path": str(out),
         "taxonomy_version": TAXONOMY_VERSION,
     }

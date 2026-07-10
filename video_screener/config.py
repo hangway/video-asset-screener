@@ -33,6 +33,38 @@ class IngestConfig(BaseModel):
     phash_size: int = 16                   # perceptual hash size
     dedup_hamming_threshold: int = 4       # <= this Hamming distance => near-dup
     frame_format: str = "jpg"
+    # Objective interval scan (ffprobe freezedetect + blackdetect): records
+    # frozen-video and black intervals per asset as evidence for prelabel.
+    interval_scan: bool = True
+    freeze_noise_db: float = -60.0         # freezedetect noise tolerance
+    freeze_min_sec: float = 1.0            # minimum freeze duration to report
+    black_min_sec: float = 0.5             # minimum black interval to report
+    black_pic_th: float = 0.98             # fraction of black pixels per frame
+
+
+class FfprobePrelabelThresholds(BaseModel):
+    """Backend-scoped thresholds for the ffprobe signalstats/blurdetect
+    metrics (their scales differ from the opencv statistics — YDIF is a mean
+    per-pixel luma change, blurdetect is higher-is-blurrier — so opencv
+    numbers must never be reused here)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Calibrated by MEASUREMENT on samples/ (see notes.md "signal-layer
+    # upgrade"): clean/duplicate blur=7.63, lowres=15.60, flicker=4.73,
+    # underexposed=5.98, watermark=3.58; YDIF clean=3.24, flicker=7.36,
+    # others <2; no sample is mostly-crushed (clip fraction 0.0).
+    # blurdetect blurriness bins, DESCENDING: score = #(blur_mean <= bin).
+    blur_bins: list[float] = Field(default_factory=lambda: [15.0, 12.0, 10.0, 8.0])
+    # mean-YDIF flicker thresholds (mean abs per-pixel luma change / frame)
+    ydif_low: float = 5.0     # above -> borderline flicker (FIX)
+    ydif_high: float = 12.0   # above -> severe flicker
+    # clipping proxy: a frame counts as clipped when it is mostly crushed —
+    # 10th percentile pinned white (YLOW >= this) or 90th percentile pinned
+    # black (YHIGH <= this). The clip's clipped-frame fraction is compared
+    # against the shared exposure_clip_fraction.
+    clip_white_ylow_min: float = 247.0
+    clip_black_yhigh_max: float = 8.0
 
 
 class PrelabelConfig(BaseModel):
@@ -55,6 +87,16 @@ class PrelabelConfig(BaseModel):
     composition_prior: int = 3
     motion_prior: int = 3
     enable_mllm: bool = False              # optional MLLM prelabel (off offline)
+    # Frozen-video / black intervals covering at least this fraction of the
+    # clip mean there is no usable content -> the EXISTING delivery_failure
+    # flag (§2.8: asset cannot be properly ingested downstream). Shorter
+    # intervals become frame_evidence only.
+    still_coverage_reject_frac: float = 0.9
+    # Backend-scoped thresholds for metrics_backend="ffprobe" (different
+    # measurement scales; the opencv thresholds above must not be reused).
+    ffprobe: FfprobePrelabelThresholds = Field(
+        default_factory=FfprobePrelabelThresholds
+    )
 
 
 class DatasetConfig(BaseModel):
@@ -174,6 +216,12 @@ class PipelineConfig(BaseModel):
     taxonomy_version: str = TAXONOMY_VERSION
     workdir: str = "runs/default"
     video_dirs: list[str] = Field(default_factory=lambda: ["samples"])
+    # Technical-metrics measurement backend: "ffprobe" (signalstats/
+    # blurdetect, QCTools lineage — default since the sample verdict-parity
+    # gate passed) or "opencv" (the original hand-rolled statistics, kept as
+    # the fallback; the ffprobe backend also degrades to it per clip when a
+    # probe fails or the binary is missing).
+    metrics_backend: str = "ffprobe"
     # Optional explicit gate minimums; defaults to taxonomy GATE_MIN. Keys
     # must be canonical dimension names.
     gate_min: dict[str, int] = Field(default_factory=lambda: dict(GATE_MIN))
@@ -186,6 +234,15 @@ class PipelineConfig(BaseModel):
     evaluate: EvaluateConfig = Field(default_factory=EvaluateConfig)
     screen: ScreenConfig = Field(default_factory=ScreenConfig)
     consistency: ConsistencyConfig = Field(default_factory=ConsistencyConfig)
+
+    @field_validator("metrics_backend")
+    @classmethod
+    def _backend_allowed(cls, v: str) -> str:
+        if v not in ("opencv", "ffprobe"):
+            raise ValueError(
+                f"metrics_backend {v!r} not in ('opencv', 'ffprobe')"
+            )
+        return v
 
     @field_validator("taxonomy_version")
     @classmethod

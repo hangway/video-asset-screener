@@ -11,8 +11,9 @@ from video_screener.stages import ingest, prelabel
 from tests.conftest import requires_ffmpeg
 
 
-def _run(tmp_path, samples_dir):
-    cfg = PipelineConfig(workdir=str(tmp_path / "run"), video_dirs=[str(samples_dir)])
+def _run(tmp_path, samples_dir, metrics_backend: str = "opencv"):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"), video_dirs=[str(samples_dir)],
+                         metrics_backend=metrics_backend)
     ingest.run(cfg)
     prelabel.run(cfg)
     rows = [
@@ -94,6 +95,42 @@ def test_prelabel_matches_sidecar_on_objective_cases(tmp_path, synth_samples):
     # deferred to the human annotate stage (documented limitation).
     assert recs["watermark"]["verdict"] == "PASS"
     assert recs["watermark"]["hard_fail_flags"] == []
+
+
+@requires_ffmpeg
+def test_prelabel_ffprobe_backend_matches_sidecars_at_least_as_well(tmp_path, synth_samples):
+    """Item-3 acceptance: with metrics_backend=ffprobe and the MEASURED
+    thresholds, prelabel verdicts match sidecar ground truth on the same 7/8
+    clips as the opencv backend (watermark stays the known subjective miss)."""
+    recs = _run(tmp_path, synth_samples, metrics_backend="ffprobe")
+    for name in ["clean_pass", "duplicate", "corrupted", "flicker", "lowres",
+                 "tooshort", "underexposed"]:
+        sidecar = json.loads((synth_samples / f"{name}.json").read_text())
+        assert recs[name]["verdict"] == sidecar["expected_verdict"], (
+            f"{name}: ffprobe prelabel {recs[name]['verdict']} != "
+            f"sidecar {sidecar['expected_verdict']}"
+        )
+    assert recs["watermark"]["verdict"] == "PASS"          # known miss, both backends
+    # the calibrated signals drive the same routing causes as opencv
+    assert recs["lowres"]["scores"]["sharpness_focus"] == 0
+    assert recs["flicker"]["scores"]["temporal_stability"] <= 2
+    assert "deflicker" in recs["flicker"]["fix_actions"]
+    assert recs["underexposed"]["scores"]["exposure_dynamic_range"] <= 2
+    for r in recs.values():
+        AnnotationRecord.model_validate(r)
+
+
+@requires_ffmpeg
+def test_backend_verdict_parity_on_samples(tmp_path, synth_samples):
+    """Item-4 parity gate: prelabel under BOTH metrics backends must emit the
+    same verdict for every sample clip. This gate is what justified flipping
+    the default backend to ffprobe."""
+    ocv = _run(tmp_path / "ocv", synth_samples, metrics_backend="opencv")
+    ffp = _run(tmp_path / "ffp", synth_samples, metrics_backend="ffprobe")
+    assert set(ocv) == set(ffp)
+    diverged = {a: (ocv[a]["verdict"], ffp[a]["verdict"])
+                for a in ocv if ocv[a]["verdict"] != ffp[a]["verdict"]}
+    assert not diverged, f"backend verdict divergence: {diverged}"
 
 
 # --------------------------- unit: derive_verdict --------------------------

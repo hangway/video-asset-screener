@@ -288,6 +288,63 @@ def build_samples(out_dir: str | Path) -> list[Path]:
     return built
 
 
+def build_stability_samples(out_dir: str | Path) -> list[Path]:
+    """Extra clips exercising the objective freezedetect/blackdetect signals
+    (frozen video, all-black video). Kept OUT of the core 8-clip set so the
+    long-standing sample counts stay stable; tests build these on demand."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    built: list[Path] = []
+
+    # a) fully frozen video: one detailed frame held for the whole clip ------
+    frozen = out / "frozen.mp4"
+    still = out / "_frozen_frame.png"
+    res = _run(["ffmpeg", "-y", "-f", "lavfi",
+                "-i", _base_filter("clean_pass"), "-frames:v", "1", str(still)])
+    if res.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed for {still.name}:\n{res.stderr[-800:]}")
+    res = _run(["ffmpeg", "-y", "-loop", "1", "-i", str(still),
+                "-t", f"{DUR}", "-r", f"{FPS}", "-pix_fmt", "yuv420p",
+                "-c:v", "libx264", "-preset", "ultrafast",
+                "-movflags", "+faststart", str(frozen)])
+    still.unlink(missing_ok=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed for {frozen.name}:\n{res.stderr[-800:]}")
+    _sidecar(out, "frozen", {
+        "asset_id": "frozen",
+        "file": "frozen.mp4",
+        "expected_verdict": "REJECT",
+        "expected_flags": ["delivery_failure"],
+        "expected_scores": {},
+        "fix_actions": [],
+        "reject_reason": "video frozen for its whole duration, no usable "
+                         "motion content (delivery_failure)",
+        "context_tags": _ctx(motion_complexity="static_or_minimal"),
+        "note": "single frame held for the full clip -> freezedetect fires",
+        "near_duplicate_of": None,
+    })
+    built.append(frozen)
+
+    # b) all-black video ------------------------------------------------------
+    black = out / "black.mp4"
+    _encode(f"color=c=black:size={SIZE}:rate={FPS}", "", black, DUR)
+    _sidecar(out, "black", {
+        "asset_id": "black",
+        "file": "black.mp4",
+        "expected_verdict": "REJECT",
+        "expected_flags": ["delivery_failure"],
+        "expected_scores": {},
+        "fix_actions": [],
+        "reject_reason": "video black for its whole duration, no usable "
+                         "content (delivery_failure)",
+        "context_tags": _ctx(motion_complexity="static_or_minimal"),
+        "note": "solid black frames for the full clip -> blackdetect fires",
+        "near_duplicate_of": None,
+    })
+    built.append(black)
+    return built
+
+
 if __name__ == "__main__":
     import sys
 

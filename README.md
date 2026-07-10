@@ -116,6 +116,44 @@ workdir or inputs on the CLI: `--workdir`, `--video-dir`.
 
 Validate any file: `pipeline validate <file.jsonl> --kind annotation|inference`.
 
+## Metrics backends (the measurement layer)
+
+Technical dimension scoring (sharpness / exposure / temporal stability) reads
+per-frame measurements through one pluggable interface, selected by
+`metrics_backend` in the config:
+
+- **`ffprobe`** (default): ffmpeg's `signalstats` + `blurdetect` filters in a
+  single ffprobe call per clip — the standardized per-frame signals of
+  **QCTools lineage** (the archive/broadcast QC toolchain built on these same
+  filters, credit to the QCTools / BAVC community):
+  - `YAVG` — average luma (0–255): exposure level
+  - `YDIF` — mean absolute luma change vs the previous frame: flicker /
+    temporal instability
+  - `YLOW` / `YHIGH` — 10th / 90th luma percentiles: crushed shadows /
+    blown highlights (our clipping proxy counts *mostly-crushed* frames)
+  - `blur` — blurdetect edge-width blurriness (higher = blurrier)
+  - `TOUT` — temporal-outlier pixel fraction (dropout/noise candidates;
+    parsed and reported, reserved for future compression-artifact work
+    alongside ffmpeg's `blockdetect` blockiness filter)
+- **`opencv`**: the original hand-rolled statistics over sampled frames
+  (variance-of-Laplacian sharpness, mean-luma exposure, brightness-std
+  flicker). Kept as the fallback; the ffprobe backend also degrades to it
+  per clip when a probe fails or ffprobe is missing.
+
+The scales differ between backends (YDIF ≠ brightness-std; blurdetect is
+inverted vs Laplacian variance), so thresholds are **backend-scoped** in the
+config (`prelabel.ffprobe.*`) and were calibrated by measuring the sample set
+(see `notes.md`). A parity test asserts both backends produce identical
+prelabel verdicts on `samples/`; that gate is what justified the default flip.
+
+Ingest additionally runs `freezedetect` + `blackdetect` per clip (one ffprobe
+call) and records frozen-video / black intervals as objective evidence:
+full-coverage intervals (≥90% of duration) raise the existing
+`delivery_failure` flag (§2.8 — no usable content); partial intervals become
+`temporal_stability` frame evidence for the human annotate stage. This
+upgrades the measurement backend only — taxonomy v0.3.1 scoring semantics,
+gates, and flags are unchanged, and the embedding encoder is untouched.
+
 ## Reference consistency & edge stability (screen stage)
 
 Give the screen stage reference images of your subjects and it checks every
