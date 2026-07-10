@@ -116,6 +116,45 @@ workdir or inputs on the CLI: `--workdir`, `--video-dir`.
 
 Validate any file: `pipeline validate <file.jsonl> --kind annotation|inference`.
 
+## Reference consistency & edge stability (screen stage)
+
+Give the screen stage reference images of your subjects and it checks every
+clip against them — wired entirely into the **existing**
+`reference_inconsistency` hard-fail flag (taxonomy v0.3.1 unchanged):
+
+```bash
+pipeline run screen --video-dir clips/ --reference-dir refs/ --out runs/screened
+# refs/
+#   subject_a/  img1.png img2.jpg ...   # one subdirectory per subject
+#   subject_b/  ...
+#   loose.png                           # files at the top level -> subject "default"
+```
+
+- **Clip-vs-reference score**: every (sampled) frame's embedding is compared to
+  the assigned subject's references — best-match cosine per frame, aggregated
+  **worst-frame** per §5 (min over frames; the subject is whichever scores
+  highest). A clip below `consistency.min_reference_similarity` raises
+  `reference_inconsistency` and REJECTs through the normal flag path.
+- **Within-clip drift** (auxiliary): max consecutive-frame cosine distance.
+  Above `consistency.max_frame_drift` the clip is a morphing candidate and gets
+  `needs_human_review` — drift alone never changes a verdict.
+- **Head/tail edge stability**: per-frame similarity + drift are analyzed
+  separately for the head window, tail window (`consistency.edge_window_sec`)
+  and clip body. An edge that is a statistical outlier vs the body (beyond
+  `consistency.edge_outlier_sigma` body standard deviations) emits a
+  `trim_head`/`trim_tail` fix_action with a suggested trim duration and routes
+  **FIX** per §1 (trims are minor allowed fixes) — never REJECT.
+- **Outputs**: `consistency_report.json` (per-clip scores, per-frame worst
+  offenders, drift, edge analysis) and, in `screen_report.html`, a reference
+  gallery plus a per-subject ranking table (best → worst) with
+  inconsistency / drift / trim markers.
+
+References are embedded by the **same pluggable encoder** as clip frames and
+cached (`reference_cache/`, keyed by encoder + content digest). NOTE: the
+default deterministic encoder captures technical statistics, not identity —
+it verifies the mechanism but cannot judge whether a face/character matches;
+use a real CLIP/SigLIP encoder for meaningful consistency scores.
+
 ## Skills
 
 Common operations are wrapped as Claude Code skills in `.claude/skills/`:
@@ -133,6 +172,11 @@ pytest -q          # ingest sampling+dedup, schema validation, split leakage,
 Video only. No still-image pipeline, no auth, no cloud, no web server. Deliverable
 is this pip-installable package + README.
 
+**Audio is explicitly OUT OF SCOPE for v0.3.x**: clips are judged on visual
+usability alone — no audio decoding, sync, or loudness checks anywhere in the
+pipeline (a future taxonomy revision would have to introduce them; nothing in
+v0.3.1 scores sound).
+
 ## Notes / caveats
 
 - The bundled `samples/` set is **8 tiny synthetic clips** for exercising the
@@ -146,3 +190,7 @@ is this pip-installable package + README.
   the emitted verdict). It is **not** calibrated on a held-out set with this
   toy dataset (documented placeholder per §7.2 — calibrate on a real
   validation set before production use).
+- Reference-consistency scores from the **deterministic encoder are
+  structural only** — it cannot judge subject identity. Swap in a CLIP/SigLIP
+  encoder (`model.encoder: "clip:ViT-B-32"`, weights available locally) before
+  trusting consistency verdicts on real footage.

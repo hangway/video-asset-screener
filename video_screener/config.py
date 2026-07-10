@@ -117,6 +117,33 @@ class EvaluateConfig(BaseModel):
     worst_gallery_size: int = 12
 
 
+class ConsistencyConfig(BaseModel):
+    """Reference-consistency settings (wired to the existing
+    ``reference_inconsistency`` flag; taxonomy v0.3.1 unchanged)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Directory of reference images: one subdirectory per subject (loose
+    # images fall under subject "default"). None disables consistency checks.
+    reference_dir: Optional[str] = None
+    # Clip score = worst-frame best-match cosine vs the assigned subject's
+    # references (§5). Below this the existing reference_inconsistency
+    # hard-fail flag is raised at screen time.
+    min_reference_similarity: float = 0.5
+    # How many worst per-frame offenders to list per clip in the report.
+    report_worst_k: int = 3
+    # Within-clip drift: max consecutive-frame cosine distance above this
+    # marks a morphing candidate -> needs_human_review (never auto-REJECT).
+    max_frame_drift: float = 0.35
+    # Head/tail edge stability: each edge window's per-frame similarity +
+    # drift is compared against the clip body; a statistical outlier edge
+    # (beyond edge_outlier_sigma body standard deviations) suggests
+    # trim_head/trim_tail and routes FIX per §1 (trims are minor), never
+    # REJECT.
+    edge_window_sec: float = 1.0
+    edge_outlier_sigma: float = 3.0
+
+
 class ScreenConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -158,6 +185,7 @@ class PipelineConfig(BaseModel):
     train: TrainConfig = Field(default_factory=TrainConfig)
     evaluate: EvaluateConfig = Field(default_factory=EvaluateConfig)
     screen: ScreenConfig = Field(default_factory=ScreenConfig)
+    consistency: ConsistencyConfig = Field(default_factory=ConsistencyConfig)
 
     @field_validator("taxonomy_version")
     @classmethod
