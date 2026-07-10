@@ -13,6 +13,7 @@ prelabel can raise ``delivery_failure``.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -29,6 +30,9 @@ try:
     cv2.setLogLevel(0)  # 0 = SILENT
 except Exception:  # pragma: no cover
     pass
+
+# PySceneDetect logs an INFO line per clip; quiet it.
+logging.getLogger("pyscenedetect").setLevel(logging.ERROR)
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".gif"}
 

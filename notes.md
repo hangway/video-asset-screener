@@ -29,3 +29,10 @@
 - Fixed lowres sample: nearest-neighbor upscale gave HIGH laplacian (blocky); switched to bilinear+boxblur -> genuinely soft (var ~11 -> sharpness 0). Fixed flicker: 8Hz aliased at 1fps sampling -> lowered to 0.35Hz (brightness_std 37 vs clean 9.5).
 - DECISION: prelabel scope = sharpness/exposure/temporal + delivery_failure(objective). composition/motion = neutral prior 3; prompt_fidelity = null (no prompt offline); every record needs_human_review=True. Verdict is a heuristic starting point; annotate stage sets ground truth.
 - aggregate.py = shared §1/§5/§6 verdict derivation + §5 pooling (worst=min for temporal/motion, mean for rest, max for flags) + consistency_violations() for evaluate.
+
+## Stage 3 annotate + TUI (verified)
+- `pytest tests/test_annotate.py` -> 9 passed (incl. headless Textual run_test drive: navigate, toggle flag, save; all saved records validate §7.1).
+- AnnotationSession = pure editable model (load prelabels/index, navigate, set_verdict/toggle_flag/set_score/reason/fix, validate, save). TUI wraps it.
+- Auto mode: applies sidecar ground truth if present (8/8 for samples -> watermark REJECT), else accepts prelabels. Used by `run all` + tests.
+- TUI gotchas fixed: hidden Input stole focus (disable it + focus ListView so bindings fire); up/down collided with ListView nav (use c/z for scores); Static.render() not .renderable in Textual 8.x.
+- In-terminal 24-bit half-block thumbnail renderer + browser contact-sheet handoff.
