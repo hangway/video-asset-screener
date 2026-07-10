@@ -208,6 +208,19 @@ class ScreenConfig(BaseModel):
         return v
 
 
+class VimaxConfig(BaseModel):
+    """ViMax working-dir screening preset (layout: docs/audits/vimax-layout.md).
+
+    When ``working_dir`` is set, screen discovers shots/*/video.mp4 (and
+    scene_*/shots/*/video.mp4) instead of scanning video_dirs, carries shot
+    idx in asset_id and prompt text in vimax_manifest.json + the HTML report
+    (free-form; the closed §7.1/§7.2 schemas are untouched)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    working_dir: Optional[str] = None
+
+
 class PipelineConfig(BaseModel):
     """Root config validated on load. ``taxonomy_version`` is pinned."""
 
@@ -234,6 +247,7 @@ class PipelineConfig(BaseModel):
     evaluate: EvaluateConfig = Field(default_factory=EvaluateConfig)
     screen: ScreenConfig = Field(default_factory=ScreenConfig)
     consistency: ConsistencyConfig = Field(default_factory=ConsistencyConfig)
+    vimax: VimaxConfig = Field(default_factory=VimaxConfig)
 
     @field_validator("metrics_backend")
     @classmethod
