@@ -125,6 +125,98 @@ def frame_drift(frame_embeddings: np.ndarray) -> np.ndarray:
     return (1.0 - sims).astype(np.float32)
 
 
+# Floor for the body standard deviation in the edge-outlier test: similarity
+# and drift live on a ~[0,1] scale, so deviations below this are sensor noise
+# (and a perfectly constant body would otherwise make ANY difference an
+# outlier).
+_STD_FLOOR = 1e-3
+
+
+def edge_stability(per_frame_sim: list[float], drift: list[float],
+                   times: list[float | None], duration: float | None,
+                   window_sec: float = 1.0, sigma: float = 3.0) -> dict | None:
+    """Head/tail edge-stability analysis against the clip body.
+
+    Frames are split into head (t < window), tail (t > end - window) and
+    body. An edge segment is a statistical outlier when its mean per-frame
+    reference similarity falls below body_mean - sigma*body_std (similarity:
+    lower is worse) OR its mean drift rises above body_mean + sigma*body_std
+    (drift: higher is worse). Drift value i (frames i -> i+1) belongs to an
+    edge segment when either endpoint does; body baselines use only pairs
+    fully inside the body.
+
+    An outlier edge yields a trim suggestion — cut up to the first (head) /
+    from the last (tail) body frame — and is meant to route as FIX per §1
+    (trims are minor, allowed post-production), never REJECT.
+
+    Returns None when the analysis is impossible: unknown frame times, or no
+    body frames to serve as the baseline (clip shorter than ~2 windows).
+    """
+    if not times or any(t is None for t in times):
+        return None
+    t = np.asarray(times, dtype=np.float64)
+    end = float(duration) if duration else float(t.max())
+    head = [i for i in range(len(t)) if t[i] < window_sec]
+    tail = [i for i in range(len(t))
+            if t[i] > end - window_sec and i not in head]
+    body = [i for i in range(len(t)) if i not in head and i not in tail]
+    if not body:
+        return None
+
+    sim = np.asarray(per_frame_sim, dtype=np.float64)
+    dr = np.asarray(drift, dtype=np.float64)
+
+    def pair_vals(idx: list[int], strict: bool) -> np.ndarray:
+        s = set(idx)
+        if strict:
+            keep = [i for i in range(len(dr)) if i in s and i + 1 in s]
+        else:
+            keep = [i for i in range(len(dr)) if i in s or i + 1 in s]
+        return dr[keep]
+
+    body_sim, body_pairs = sim[body], pair_vals(body, strict=True)
+
+    def seg(idx: list[int]) -> dict:
+        pv = pair_vals(idx, strict=False)
+        return {
+            "n_frames": len(idx),
+            "sim_mean": round(float(sim[idx].mean()), 4) if idx else None,
+            "drift_mean": round(float(pv.mean()), 4) if pv.size else None,
+        }
+
+    def outlier(idx: list[int]) -> bool:
+        bad = False
+        if idx and body_sim.size >= 2:
+            sd = max(float(body_sim.std()), _STD_FLOOR)
+            bad |= float(sim[idx].mean()) < float(body_sim.mean()) - sigma * sd
+        pv = pair_vals(idx, strict=False)
+        if pv.size and body_pairs.size >= 2:
+            sd = max(float(body_pairs.std()), _STD_FLOOR)
+            bad |= float(pv.mean()) > float(body_pairs.mean()) + sigma * sd
+        return bool(bad)
+
+    head_out, tail_out = outlier(head), outlier(tail)
+    suggestions = []
+    if head_out:
+        suggestions.append({"action": "trim_head",
+                            "suggested_trim_sec": round(float(t[body].min()), 2)})
+    if tail_out:
+        suggestions.append({"action": "trim_tail",
+                            "suggested_trim_sec": round(float(end - t[body].max()), 2)})
+    return {
+        "window_sec": window_sec,
+        "sigma": sigma,
+        "head": {**seg(head), "outlier": head_out},
+        "tail": {**seg(tail), "outlier": tail_out},
+        "body": {
+            **seg(body),
+            "sim_std": round(float(body_sim.std()), 4) if body_sim.size else None,
+            "drift_std": round(float(body_pairs.std()), 4) if body_pairs.size else None,
+        },
+        "trim_suggestions": suggestions,
+    }
+
+
 def score_clip(frame_embeddings: np.ndarray,
                index: ReferenceIndex) -> ClipConsistency | None:
     """Score a clip's frames against every subject; assign the best subject.

@@ -224,6 +224,62 @@ def test_consistency_report_doc_structure(tmp_path):
     json.dumps(doc)  # must be JSON-serializable as written
 
 
+# ---------------- head/tail edge stability -> trim FIX ----------------------
+def test_unstable_head_routes_fix_with_trim_head(tmp_path):
+    """A statistically unstable head second downgrades PASS -> FIX with a
+    trim_head suggestion — never REJECT (§1: trims are allowed fixes)."""
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    idx = _ref_index(hero=[[1.0, 0.0, 0.0, 0.0]])
+    # frames at t=0,0.5,...,2.5 (duration 5): head = first two frames, off
+    # the reference (sim 0.6, still above the 0.5 flag threshold); body clean
+    off, on = [0.6, 0.8, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]
+    emb = [off, off, on, on, on, on]
+    logits = [2.0, 1.0, 0.0]                       # head verdict: PASS
+    model = _StubModel(logits, NO_FLAGS, LEVEL4)
+    rec, cons = _screen_one(model, _EmbeddingEncoder(emb), _meta(5.0),
+                            _ok_sample(6), cfg, "shakyhead", idx)
+    assert rec.verdict == "FIX"                    # downgraded, NOT rejected
+    assert "trim_head" in rec.fix_actions
+    assert "edge_instability_head" in rec.primary_reasons
+    assert rec.hard_fail_flags == []               # no flag from edges
+    es = cons["edge_stability"]
+    assert es["head"]["outlier"] is True and es["tail"]["outlier"] is False
+    assert es["trim_suggestions"][0] == {"action": "trim_head",
+                                         "suggested_trim_sec": 1.0}
+    # confidence: head softmax of the emitted (downgraded) verdict
+    expected = float(torch.softmax(torch.tensor(logits), dim=-1)[VERDICTS.index("FIX")])
+    assert abs(rec.confidence - expected) < 1e-6
+    InferenceRecord.model_validate(rec.model_dump())  # §7.2 (FIX has actions)
+
+
+def test_unstable_tail_routes_fix_with_trim_tail(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    idx = _ref_index(hero=[[1.0, 0.0, 0.0, 0.0]])
+    off, on = [0.6, 0.8, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]
+    emb = [on, on, on, on, on, off]                # last frame (t=2.5) is off
+    model = _StubModel([2.0, 1.0, 0.0], NO_FLAGS, LEVEL4)
+    rec, cons = _screen_one(model, _EmbeddingEncoder(emb), _meta(3.0),
+                            _ok_sample(6), cfg, "shakytail", idx)
+    assert rec.verdict == "FIX"
+    assert rec.fix_actions == ["trim_tail"]
+    es = cons["edge_stability"]
+    assert es["tail"]["outlier"] is True and es["head"]["outlier"] is False
+    assert es["trim_suggestions"][0]["action"] == "trim_tail"
+    assert abs(es["trim_suggestions"][0]["suggested_trim_sec"] - 1.0) < 1e-6
+    InferenceRecord.model_validate(rec.model_dump())
+
+
+def test_stable_edges_leave_pass_untouched(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    idx = _ref_index(hero=[[1.0, 0.0, 0.0, 0.0]])
+    emb = [[1.0, 0.0, 0.0, 0.0]] * 6
+    model = _StubModel([2.0, 1.0, 0.0], NO_FLAGS, LEVEL4)
+    rec, cons = _screen_one(model, _EmbeddingEncoder(emb), _meta(5.0),
+                            _ok_sample(6), cfg, "steadyclip", idx)
+    assert rec.verdict == "PASS" and rec.fix_actions == []
+    assert cons["edge_stability"]["trim_suggestions"] == []
+
+
 def test_report_ranking_and_reference_gallery(tmp_path):
     """With a consistency doc, screen_report.html gains a reference gallery
     and a per-subject ranking table ordered best -> worst; without one, the
@@ -240,7 +296,9 @@ def test_report_ranking_and_reference_gallery(tmp_path):
         {"asset_id": "worst_clip", "subject": "hero", "score": 0.2,
          "per_subject": {}, "per_frame": [0.2], "worst_frames": [],
          "below_threshold": True, "drift": [], "max_drift": 0.5,
-         "max_drift_between": None, "drift_exceeds_threshold": True},
+         "max_drift_between": None, "drift_exceeds_threshold": True,
+         "edge_stability": {"trim_suggestions": [
+             {"action": "trim_head", "suggested_trim_sec": 1.0}]}},
         {"asset_id": "best_clip", "subject": "hero", "score": 0.9,
          "per_subject": {}, "per_frame": [0.9], "worst_frames": [],
          "below_threshold": False, "drift": [], "max_drift": 0.01,
@@ -259,6 +317,7 @@ def test_report_ranking_and_reference_gallery(tmp_path):
     assert "data:image/jpeg;base64," in html          # embedded ref gallery
     assert html.index("best_clip</td>") < html.index("worst_clip</td>")  # ranked
     assert "⚑ inconsistent" in html and "⚠ drift" in html
+    assert "✂ trim_head 1.0s" in html            # head/tail edge marker
     assert "http://" not in html and "https://" not in html  # self-contained
 
     plain = screen._build_report(rows, routing)        # no references -> no section

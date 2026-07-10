@@ -135,6 +135,13 @@ class ConsistencyConfig(BaseModel):
     # Within-clip drift: max consecutive-frame cosine distance above this
     # marks a morphing candidate -> needs_human_review (never auto-REJECT).
     max_frame_drift: float = 0.35
+    # Head/tail edge stability: each edge window's per-frame similarity +
+    # drift is compared against the clip body; a statistical outlier edge
+    # (beyond edge_outlier_sigma body standard deviations) suggests
+    # trim_head/trim_tail and routes FIX per §1 (trims are minor), never
+    # REJECT.
+    edge_window_sec: float = 1.0
+    edge_outlier_sigma: float = 3.0
 
 
 class ScreenConfig(BaseModel):

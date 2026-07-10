@@ -181,3 +181,51 @@ def test_frame_drift_scale_invariant_and_degenerate():
     assert np.allclose(frame_drift(scaled), [0.0], atol=1e-6)
     assert frame_drift(np.ones((1, 4), dtype=np.float32)).size == 0
     assert frame_drift(np.zeros((0, 4), dtype=np.float32)).size == 0
+
+
+# --------------------------- edge stability math ----------------------------
+def test_edge_outlier_head_by_similarity_tail_by_drift():
+    from video_screener.consistency import edge_stability
+
+    # 10 frames at 1 fps, duration 9s -> head = frame 0, tail = frame 9
+    times = [float(i) for i in range(10)]
+    sim = [0.2] + [0.9] * 9                # head similarity collapses
+    drift = [0.01] * 8 + [0.5]             # tail pair (8 -> 9) jumps
+    es = edge_stability(sim, drift, times, duration=9.0,
+                        window_sec=1.0, sigma=3.0)
+    assert es["head"]["outlier"] is True   # sim outlier (low vs body)
+    assert es["tail"]["outlier"] is True   # drift outlier (high vs body)
+    actions = {t["action"]: t["suggested_trim_sec"] for t in es["trim_suggestions"]}
+    # cut up to the first body frame / from the last body frame
+    assert actions == {"trim_head": 1.0, "trim_tail": 1.0}
+    assert es["body"]["n_frames"] == 8
+
+
+def test_edge_stability_stable_clip_has_no_outliers():
+    from video_screener.consistency import edge_stability
+
+    times = [float(i) for i in range(10)]
+    es = edge_stability([0.9] * 10, [0.01] * 9, times, duration=9.0)
+    assert es["head"]["outlier"] is False and es["tail"]["outlier"] is False
+    assert es["trim_suggestions"] == []
+
+
+def test_edge_stability_within_sigma_is_not_an_outlier():
+    from video_screener.consistency import edge_stability
+
+    # body sim noisy (std ~0.05); head dip of one std must NOT trigger at 3σ
+    body = [0.85, 0.95, 0.85, 0.95, 0.85, 0.95, 0.85, 0.95]
+    times = [float(i) for i in range(10)]
+    es = edge_stability([0.85] + body + [0.9], [0.01] * 9, times, duration=9.0,
+                        sigma=3.0)
+    assert es["head"]["outlier"] is False
+
+
+def test_edge_stability_degenerate_inputs_return_none():
+    from video_screener.consistency import edge_stability
+
+    # unknown frame times -> not analyzable
+    assert edge_stability([0.9, 0.9], [0.0], [0.0, None], duration=2.0) is None
+    # clip shorter than ~2 windows -> no body baseline
+    assert edge_stability([0.9, 0.9], [0.0], [0.0, 1.4], duration=1.5) is None
+    assert edge_stability([], [], [], duration=1.0) is None

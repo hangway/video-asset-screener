@@ -42,6 +42,14 @@ distance) as an AUXILIARY signal: a clip above
 ``consistency.max_frame_drift`` is a morphing candidate and gets
 ``needs_human_review`` — drift never changes the verdict or raises a flag on
 its own (a hard cut is a legitimate reason for a big jump).
+
+Head/tail edge stability: per-frame similarity and drift are analyzed
+separately for the head window, tail window (``consistency.edge_window_sec``)
+and the clip body. An edge that is a statistical outlier vs the body (beyond
+``consistency.edge_outlier_sigma`` body standard deviations) yields a
+``trim_head``/``trim_tail`` fix_action with a suggested trim duration and
+downgrades a PASS to FIX (§1: trims are minor allowed fixes) — edge
+instability never causes a REJECT.
 """
 
 from __future__ import annotations
@@ -56,6 +64,7 @@ from ..aggregate import derive_verdict
 from ..config import PipelineConfig
 from ..consistency import (
     ReferenceIndex,
+    edge_stability,
     frame_drift,
     index_references,
     score_clip,
@@ -97,8 +106,8 @@ def _fix_signals(scores: dict[str, int], gate: dict[str, int]) -> list[str]:
 
 
 def _consistency_entry(aid: str, feats, frame_times: list[Optional[float]],
-                       ref_index: ReferenceIndex,
-                       cfg: PipelineConfig) -> Optional[dict]:
+                       ref_index: ReferenceIndex, cfg: PipelineConfig,
+                       duration: Optional[float] = None) -> Optional[dict]:
     """Score one clip's frame embeddings against the reference index and
     build its consistency_report.json entry."""
     cons = score_clip(feats, ref_index)
@@ -115,6 +124,11 @@ def _consistency_entry(aid: str, feats, frame_times: list[Optional[float]],
     drift = frame_drift(feats)
     max_drift = float(drift.max()) if drift.size else 0.0
     max_at = int(drift.argmax()) if drift.size else None
+    # head/tail edge stability vs the clip body (None when not analyzable)
+    edge = edge_stability(
+        cons.per_frame, [float(v) for v in drift], frame_times, duration,
+        cfg.consistency.edge_window_sec, cfg.consistency.edge_outlier_sigma,
+    )
     return {
         "asset_id": aid,
         "subject": cons.subject,
@@ -131,6 +145,7 @@ def _consistency_entry(aid: str, feats, frame_times: list[Optional[float]],
             if max_at is not None else None
         ),
         "drift_exceeds_threshold": max_drift > cfg.consistency.max_frame_drift,
+        "edge_stability": edge,
     }
 
 
@@ -184,7 +199,8 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
     cons_entry = None
     cons_strength = None
     if ref_index is not None:
-        cons_entry = _consistency_entry(aid, feats, frame_times, ref_index, cfg)
+        cons_entry = _consistency_entry(aid, feats, frame_times, ref_index, cfg,
+                                        duration=dur)
         if cons_entry is not None and cons_entry["below_threshold"]:
             if "reference_inconsistency" not in pred_flags:
                 pred_flags.append("reference_inconsistency")
@@ -228,6 +244,15 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
         verdict = "REJECT" if (zero_dims and hard_sub) else "FIX"
         needs_review = True
 
+    # (4b) unstable head/tail -> FIX with a trim suggestion (§1: trims are
+    # minor allowed fixes). Edge instability only downgrades a PASS; it is
+    # never a rejection cause, and a FIX/REJECT from other rules stands.
+    trim_suggestions = (
+        ((cons_entry or {}).get("edge_stability") or {}).get("trim_suggestions") or []
+    )
+    if trim_suggestions and verdict == "PASS":
+        verdict = "FIX"
+
     # confidence = head softmax of the *emitted* verdict (which may be the
     # PASS-gate downgrade rather than the head argmax)
     final_idx = VERDICTS.index(verdict)
@@ -246,6 +271,13 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
         for d in subgate:
             if d in _FIX_FOR_DIM and _FIX_FOR_DIM[d] not in fix_actions:
                 fix_actions.append(_FIX_FOR_DIM[d])
+        if verdict == "FIX":
+            for t in trim_suggestions:   # trim_head / trim_tail
+                if t["action"] not in fix_actions:
+                    fix_actions.append(t["action"])
+                reasons.append(
+                    f"edge_instability_{t['action'].removeprefix('trim_')}"
+                )
         if verdict == "FIX" and not fix_actions:
             fix_actions = ["post_production"]
         if verdict == "REJECT":
@@ -401,14 +433,21 @@ def _consistency_sections(cons_doc: dict,
     for e in cons_doc.get("clips", []):
         by_subject.setdefault(e["subject"], []).append(e)
     tables = []
+    def _markers(e: dict) -> str:
+        m = "⚑ inconsistent" if e["below_threshold"] else ""
+        if e.get("drift_exceeds_threshold"):
+            m += " ⚠ drift"
+        for t in (e.get("edge_stability") or {}).get("trim_suggestions") or []:
+            m += f' ✂ {t["action"]} {t["suggested_trim_sec"]}s'
+        return m
+
     for name in sorted(by_subject):
         ranked = sorted(by_subject[name], key=lambda e: e["score"], reverse=True)
         rows_html = "".join(
             f'<tr class="{"below" if e["below_threshold"] else ""}">'
             f'<td>{i + 1}</td><td>{e["asset_id"]}</td>'
             f'<td>{e["score"]:.3f}</td><td>{e.get("max_drift", 0):.3f}</td>'
-            f'<td>{"⚑ inconsistent" if e["below_threshold"] else ""}'
-            f'{" ⚠ drift" if e.get("drift_exceeds_threshold") else ""}</td></tr>'
+            f'<td>{_markers(e)}</td></tr>'
             for i, e in enumerate(ranked)
         )
         tables.append(
