@@ -1,0 +1,14 @@
+{
+  "taxonomy_version": "0.3.1",
+  "clips": [
+    "clean_pass.mp4",
+    "watermark.mp4",
+    "corrupted.mp4",
+    "flicker.mp4",
+    "duplicate.mp4",
+    "lowres.mp4",
+    "tooshort.mp4",
+    "underexposed.mp4"
+  ],
+  "count": 8
+}

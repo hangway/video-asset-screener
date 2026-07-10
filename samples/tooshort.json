@@ -1,0 +1,33 @@
+{
+  "asset_id": "tooshort",
+  "file": "tooshort.mp4",
+  "expected_verdict": "REJECT",
+  "expected_flags": [
+    "delivery_failure"
+  ],
+  "expected_scores": {},
+  "fix_actions": [],
+  "reject_reason": "duration 0.3s is below the usable minimum (delivery_failure placeholder)",
+  "context_tags": {
+    "shot_type": [
+      "WS"
+    ],
+    "asset_role": [
+      "supporting"
+    ],
+    "source": [
+      "generated"
+    ],
+    "content_category": [
+      "abstract_motion"
+    ],
+    "aesthetic_family": [
+      "abstract_experimental"
+    ],
+    "motion_complexity": "moderate_natural",
+    "duration_bucket": "very_short",
+    "text_presence": "none"
+  },
+  "note": "0.3s clip, below the <0.5s / min-usable-duration floor (\u00a75)",
+  "near_duplicate_of": null
+}

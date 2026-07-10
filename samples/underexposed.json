@@ -1,0 +1,41 @@
+{
+  "asset_id": "underexposed",
+  "file": "underexposed.mp4",
+  "expected_verdict": "FIX",
+  "expected_flags": [],
+  "expected_scores": {
+    "sharpness_focus": 3,
+    "exposure_dynamic_range": 2,
+    "composition_framing": 3,
+    "prompt_fidelity_coherence": 3,
+    "temporal_stability": 3,
+    "motion_quality": 3
+  },
+  "fix_actions": [
+    "color_grade",
+    "exposure_correction"
+  ],
+  "reject_reason": "",
+  "context_tags": {
+    "shot_type": [
+      "WS"
+    ],
+    "asset_role": [
+      "supporting"
+    ],
+    "source": [
+      "generated"
+    ],
+    "content_category": [
+      "abstract_motion"
+    ],
+    "aesthetic_family": [
+      "stylized_cinematic"
+    ],
+    "motion_complexity": "moderate_natural",
+    "duration_bucket": "short",
+    "text_presence": "none"
+  },
+  "note": "mild underexposure + flat contrast -> recoverable via grading",
+  "near_duplicate_of": null
+}

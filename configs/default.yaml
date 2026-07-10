@@ -1,0 +1,38 @@
+# Default pipeline config (validated by video_screener.config.PipelineConfig).
+# Pinned to taxonomy v0.3.1. Invalid flag IDs / dimension names are rejected on load.
+taxonomy_version: "0.3.1"
+workdir: runs/default
+video_dirs:
+  - samples
+
+ingest:
+  fps: 1.0
+  short_clip_threshold_sec: 4.0
+  short_clip_interval_sec: 0.5
+  scene_detect: true
+  scene_threshold: 27.0
+  max_frames: 32
+  dedup_hamming_threshold: 4
+
+model:
+  encoder: auto        # auto | deterministic | clip:<name>
+  feature_dim: 512
+  d_model: 256
+  n_layers: 3
+  n_heads: 4
+
+train:
+  epochs: 30
+  batch_size: 8
+  lr: 0.001
+  flag_pos_weight: 4.0
+  device: cpu
+
+dataset:
+  train_frac: 0.6
+  val_frac: 0.2
+  test_frac: 0.2
+  seed: 1234
+
+screen:
+  review_confidence_threshold: 0.55

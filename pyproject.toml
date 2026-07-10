@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-asset-screener"
+version = "0.1.0"
+description = "General-purpose AI video asset usability screening pipeline (taxonomy v0.3.1)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "video-asset-screener" }]
+keywords = ["video", "ai-generated", "quality", "screening", "usability"]
+
+dependencies = [
+    "pydantic>=2.5",
+    "typer>=0.9",
+    "rich>=13.0",
+    "pyyaml>=6.0",
+    "numpy>=1.24",
+    "pillow>=10.0",
+    "imagehash>=4.3",
+    "opencv-python-headless>=4.8",
+    "scenedetect>=0.6",
+    "scikit-learn>=1.3",
+    "torch>=2.1",
+    "textual>=0.50",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+clip = ["open_clip_torch>=2.20", "transformers>=4.35"]
+
+[project.scripts]
+pipeline = "video_screener.cli:app"
+
+[tool.setuptools]
+packages = [
+    "video_screener",
+    "video_screener.stages",
+    "video_screener.models",
+    "video_screener.data",
+    "video_screener.utils",
+    "tui",
+    "dashboard",
+]
+
+[tool.setuptools.package-data]
+dashboard = ["template.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

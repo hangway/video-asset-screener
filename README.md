@@ -1,0 +1,145 @@
+# video-asset-screener
+
+A general-purpose, end-to-end **training + inference pipeline for screening the
+usability of AI-generated video assets** (Kling, Runway, Wan, Seedance, custom
+fine-tunes, …) for film/TV and short-form production workflows.
+
+Given a folder of clips, it routes each to **PASS / FIX / REJECT** with a verdict,
+6 scored quality dimensions, up to 9 canonical hard-fail flags, suggested
+`fix_actions`, a confidence, and a shareable HTML report — all aligned to the
+usability standard in [`taxonomy.md`](taxonomy.md).
+
+> **Taxonomy is law.** The usability standard, closed vocabulary (9 hard-fail
+> flag IDs, 6 dimensions, 3 verdicts, gate mins, aggregation rules, output
+> schemas) lives in `taxonomy.md` **v0.3.1** and is the single source of truth.
+> The code freezes a machine-readable projection of it in
+> `video_screener/taxonomy_schema.py`; a test asserts the two never drift.
+> Nothing invents or modifies a flag ID or schema field.
+
+---
+
+## Install
+
+Requires Python ≥ 3.10 and `ffmpeg`/`ffprobe` on `PATH`.
+
+```bash
+# ffmpeg (Debian/Ubuntu)
+sudo apt-get install -y ffmpeg
+
+# the package (editable)
+pip install -e .
+# dev extras (pytest): pip install -e ".[dev]"
+```
+
+The default per-frame encoder is **offline and deterministic** (no weights to
+download). To use a real CLIP/SigLIP image tower instead, install the `clip`
+extra (`pip install -e ".[clip]"`) and set `model.encoder: "clip:ViT-B-32"` —
+it falls back to the deterministic encoder if weights aren't available.
+
+## Quickstart — one clip folder → screened output
+
+```bash
+# 1. (optional) synthesize the demo clips
+pipeline samples --out samples
+
+# 2. run the whole pipeline end to end on samples/
+pipeline run all --config configs/default.yaml
+
+# 3. build the dashboard and open it
+pipeline dashboard --workdir runs/default --out runs/default/dashboard.html
+
+# 4. screen a NEW folder of clips -> PASS/FIX/REJECT + HTML report
+pipeline run screen --video-dir /path/to/your/clips --out runs/screened
+open runs/screened/screen_report.html          # per-clip routing + reasons
+```
+
+`pipeline` is installed as a console script; you can also call it as
+`python -m video_screener.cli`.
+
+## The 7 stages
+
+Each stage is independently runnable *and* chainable; artifacts land under
+`--workdir` (default `runs/default`).
+
+| # | Stage | What it does | Key artifact |
+|---|-------|--------------|--------------|
+| 1 | **ingest** | scan dirs, ffprobe, sample frames per §5 (1 fps + scene changes; <4 s at 0.5 s), perceptual-hash clip dedup, decode-failure detection | `ingest/index.json` |
+| 2 | **prelabel** | auto pre-annotation: sharpness/exposure from frame metrics, brightness-flicker temporal heuristic, objective `delivery_failure`; emits §7.1 records (`needs_human_review=True`) | `prelabel/prelabels.jsonl` |
+| 3 | **annotate** | Textual TUI for human review — frame thumbnails, verdict/flag/score editing, closed-vocab + REJECT-needs-reason enforcement; `--auto` applies sidecar ground truth | `annotate/annotations.jsonl` |
+| 4 | **dataset** | leakage-free train/val/test splits (group by phash near-dup cluster + source id), class-balance report, training export | `dataset/splits.json`, `dataset/balance_report.json` |
+| 5 | **train** | multi-task model: frozen per-frame features → temporal transformer → 3 heads (verdict softmax, 6 CORAL ordinal dims, 9 pos-weighted sigmoid flags); config-driven, resumable | `train/model.pt`, `train/train_log.json` |
+| 6 | **evaluate** | verdict confusion matrix, per-dimension MAE/exact/±1, per-flag P/R/F1, stratified by aesthetic_family + motion_complexity, worst-failure gallery, **verdict-vs-flags/dims consistency rate** | `evaluate/eval_report.json` |
+| 7 | **screen** | batch inference: objective delivery-failure override → predicted-flag override → head-primary verdict with §1 PASS-gate; §7.2 output + shareable HTML report | `screen/screen_results.jsonl`, `screen/screen_report.html` |
+
+Run one stage: `pipeline run <stage> --config configs/default.yaml`.
+
+## Model architecture (stage 5)
+
+```
+frozen per-frame features (deterministic encoder, or CLIP/SigLIP if local)
+        │            [T, feature_dim]  — frozen, cached to disk
+        ▼
+lightweight temporal transformer (2–4 layers)      → per-frame contextual embeddings
+        │
+        ├── verdict head  → 3-way softmax (cross-entropy)          [grounded in dims+flags]
+        ├── 6 dimension heads → CORAL ordinal (rank-consistent); N/A dims masked from loss
+        └── 9 flag heads  → independent sigmoid + pos-weighted BCE (a missed hard-fail
+                            costs more than a false alarm)
+```
+
+Clip-level pooling matches **taxonomy §5**: `temporal_stability` &
+`motion_quality` use the **worst frame** (min); other dimensions use the **mean**;
+hard-fail flags use the **max** (any frame triggering triggers the clip).
+
+## Taxonomy version pinning
+
+- `video_screener/taxonomy_schema.TAXONOMY_VERSION` pins the frozen version
+  (**0.3.1**). Every artifact records its `taxonomy_version`.
+- Configs must pin the same version (`taxonomy_version: "0.3.1"`) or loading fails.
+- `tests/test_taxonomy_freeze.py` parses `taxonomy.md` §2/§3/§7 and asserts the
+  frozen constants (9 flag IDs, 6 dimensions, gate mins, verdicts) still match
+  the prose. Bump the prose → bump the code → re-run the freeze test.
+
+## Configuration
+
+YAML validated by pydantic (`video_screener/config.py`); invalid flag IDs or
+dimension names are rejected at load. See `configs/default.yaml`. Override the
+workdir or inputs on the CLI: `--workdir`, `--video-dir`.
+
+## Output schemas (the data contract)
+
+- **§7.1 annotation** (`AnnotationRecord`): full training/eval label — verdict,
+  scores, flags, context tags, fix_actions, reject_reason, frame_evidence. Rules
+  enforced: REJECT ⇒ reason + (≥1 flag OR a dim=0); FIX ⇒ fix_actions; PASS ⇒ no flag.
+- **§7.2 inference** (`InferenceRecord`): screen output — verdict, confidence,
+  flags, sparse scores, fix_actions, primary_reasons, needs_human_review.
+
+Validate any file: `pipeline validate <file.jsonl> --kind annotation|inference`.
+
+## Skills
+
+Common operations are wrapped as Claude Code skills in `.claude/skills/`:
+`run-stage`, `inspect-dataset`, `compare-runs`.
+
+## Testing
+
+```bash
+pytest -q          # ingest sampling+dedup, schema validation, split leakage,
+                   # eval metric math, model/CORAL/pooling, screen contract, TUI, dashboard
+```
+
+## Boundaries
+
+Video only. No still-image pipeline, no auth, no cloud, no web server. Deliverable
+is this pip-installable package + README.
+
+## Notes / caveats
+
+- The bundled `samples/` set is **8 tiny synthetic clips** for exercising the
+  pipeline end to end — a functional demo, not an accuracy benchmark. With so few
+  clips, held-out metrics are thin and some labels (e.g. the `watermark`
+  hard-fail) have no positive training example. See `notes.md` for the running
+  log of decisions, verified results, and open questions.
+- Screen confidence is the model's verdict-head probability; it is **not**
+  calibrated on a held-out set with this toy dataset (documented placeholder
+  per §7.2 — calibrate on a real validation set before production use).

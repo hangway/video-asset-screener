@@ -1,0 +1,38 @@
+{
+  "asset_id": "lowres",
+  "file": "lowres.mp4",
+  "expected_verdict": "REJECT",
+  "expected_flags": [],
+  "expected_scores": {
+    "sharpness_focus": 0,
+    "exposure_dynamic_range": 2,
+    "composition_framing": 2,
+    "prompt_fidelity_coherence": 2,
+    "temporal_stability": 2,
+    "motion_quality": 2
+  },
+  "fix_actions": [],
+  "reject_reason": "severe resolution loss, main subject unreadable (sharpness_focus=0)",
+  "context_tags": {
+    "shot_type": [
+      "WS"
+    ],
+    "asset_role": [
+      "supporting"
+    ],
+    "source": [
+      "generated"
+    ],
+    "content_category": [
+      "abstract_motion"
+    ],
+    "aesthetic_family": [
+      "abstract_experimental"
+    ],
+    "motion_complexity": "moderate_natural",
+    "duration_bucket": "short",
+    "text_presence": "none"
+  },
+  "note": "downscaled to 48x36 then upscaled -> unrecoverable blur",
+  "near_duplicate_of": null
+}
