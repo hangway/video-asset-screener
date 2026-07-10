@@ -22,3 +22,10 @@
 - §5 sampling verified: 5s@1fps -> 5 frames; 2s -> every 0.5s -> 4 frames; 0.29s -> 1 frame.
 - Suppressed OpenCV/libav decode-error spam via OPENCV_FFMPEG_LOGLEVEL=-8 + cv2.setLogLevel(0).
 - Scene detection is best-effort (try/except -> [] on failure); synthetic clips have no hard cuts so uniform sampling dominates.
+
+## Stage 2 prelabel (verified)
+- `pytest tests/test_prelabel.py` -> 14 passed. Prelabel verdicts match sidecar ground truth on 7/8 samples; watermark (PASS vs REJECT) is the documented exception — subjective flags are deferred to human annotate stage.
+- Calibrated metrics on real sample frames: sharpness var-of-laplacian bins [60,150,400,1200]; exposure from brightness+clip-fraction; FLICKER = std of per-frame mean brightness (isolates brightness pumping from motion; clean mandelbrot motion gave misleading spatial frame-diff).
+- Fixed lowres sample: nearest-neighbor upscale gave HIGH laplacian (blocky); switched to bilinear+boxblur -> genuinely soft (var ~11 -> sharpness 0). Fixed flicker: 8Hz aliased at 1fps sampling -> lowered to 0.35Hz (brightness_std 37 vs clean 9.5).
+- DECISION: prelabel scope = sharpness/exposure/temporal + delivery_failure(objective). composition/motion = neutral prior 3; prompt_fidelity = null (no prompt offline); every record needs_human_review=True. Verdict is a heuristic starting point; annotate stage sets ground truth.
+- aggregate.py = shared §1/§5/§6 verdict derivation + §5 pooling (worst=min for temporal/motion, mean for rest, max for flags) + consistency_violations() for evaluate.

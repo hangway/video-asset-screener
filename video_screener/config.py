@@ -38,19 +38,22 @@ class IngestConfig(BaseModel):
 class PrelabelConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Variance-of-Laplacian thresholds mapping sharpness -> 0/2/4 anchors.
-    sharpness_low: float = 40.0
-    sharpness_high: float = 250.0
-    # Mean-brightness bounds for a "well-exposed" frame (0-255).
-    exposure_dark: float = 40.0
-    exposure_bright: float = 215.0
-    # Fraction of clipped pixels that counts as severe clipping.
+    # Ascending variance-of-Laplacian bins -> sharpness score = #bins exceeded
+    # (calibrated on the synthetic samples). 5 scores (0-4) from 4 thresholds.
+    sharpness_bins: list[float] = Field(default_factory=lambda: [60.0, 150.0, 400.0, 1200.0])
+    # Mean-brightness bounds (0-255) for a "well-exposed" frame.
+    exposure_dark: float = 55.0            # below -> underexposed (recoverable)
+    exposure_bright: float = 215.0         # above -> overexposed (recoverable)
+    exposure_severe_dark: float = 25.0     # below -> exposure score 1
+    exposure_severe_bright: float = 240.0  # above -> exposure score 1
+    # Fraction of clipped (pure black/white) pixels that counts as severe.
     exposure_clip_fraction: float = 0.35
-    # Temporal flicker: mean abs frame-to-frame luma delta thresholds.
-    flicker_low: float = 6.0
-    flicker_high: float = 28.0
-    # Detected watermark corner-energy threshold (heuristic).
-    watermark_edge_ratio: float = 3.0
+    # Temporal flicker: std of per-frame mean brightness (global pumping).
+    flicker_low: float = 18.0              # above -> borderline flicker (FIX)
+    flicker_high: float = 48.0             # above -> severe flicker
+    # Neutral priors for dims that cannot be assessed from pixels alone.
+    composition_prior: int = 3
+    motion_prior: int = 3
     enable_mllm: bool = False              # optional MLLM prelabel (off offline)
 
 

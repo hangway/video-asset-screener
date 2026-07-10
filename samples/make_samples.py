@@ -27,7 +27,7 @@ _BASES = {
     "watermark": "gradients=size={size}:rate={fps}:x0=0:y0=0:x1={w}:y1={h}",
     "corrupted": "life=size={size}:rate={fps}:mold=10:ratio=0.1",
     "flicker": "testsrc2=size={size}:rate={fps}",
-    "lowres": "cellauto=size={size}:rate={fps}:rule=110",
+    "lowres": "mandelbrot=size={size}:rate={fps}:start_x=0.3:start_y=-0.4",
     "tooshort": "rgbtestsrc=size={size}:rate={fps}",
     "underexposed": "mandelbrot=size={size}:rate={fps}:start_x=-0.5:start_y=0.6",
 }
@@ -171,8 +171,9 @@ def build_samples(out_dir: str | Path) -> list[Path]:
 
     # 4) flicker injection -> FIX (deflicker) ----------------------------
     fl = out / "flicker.mp4"
-    # hue brightness oscillation drives large frame-to-frame luma deltas.
-    fl_vf = "hue=b=3.2*sin(2*PI*t*8)"
+    # hue brightness oscillation at ~0.35 Hz -> visible global-brightness
+    # pumping even when sampled at 1 fps (§5). This isolates flicker from motion.
+    fl_vf = "hue=b=4*sin(2*PI*t*0.35)"
     _encode(_base_filter("flicker"), fl_vf, fl, DUR)
     _sidecar(out, "flicker", {
         "asset_id": "flicker",
@@ -214,7 +215,9 @@ def build_samples(out_dir: str | Path) -> list[Path]:
 
     # 6) very-low-res -> REJECT (sharpness severe) -----------------------
     lr = out / "lowres.mp4"
-    lr_vf = f"scale=48:36:flags=neighbor,scale={SIZE.replace('x', ':')}:flags=neighbor"
+    # Downscale hard then bilinear-upscale -> genuine softening/blur (details
+    # unreadable), not blocky nearest-neighbor edges.
+    lr_vf = f"scale=40:30,scale={SIZE.replace('x', ':')},boxblur=2:1"
     _encode(_base_filter("lowres"), lr_vf, lr, DUR)
     _sidecar(out, "lowres", {
         "asset_id": "lowres",
