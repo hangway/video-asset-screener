@@ -41,3 +41,12 @@
 - `pytest tests/test_dataset.py` -> 7 passed. `run dataset` on samples: 7 groups, 0 leakage, split 5/2/1.
 - Leakage prevention: group by phash near-dup cluster_id (from ingest) UNION explicit source_id — NOT by folder. clean_pass+duplicate share cluster -> same split. Split whole groups via deficit-based greedy assignment to hit target fractions.
 - Training export format = annotation record + joined `frames` paths + trainable flag + cluster_id, per-split JSONL. balance_report.json = per-split verdict/flag/score histograms (sums verified == overall).
+
+## Stage 5 train (verified)
+- `pytest tests/test_model.py tests/test_train.py` -> 17 passed. `run train` on samples: loss 2.69->0.84, verdict 1.12->0.38, dims->0.41, flags->0.05; 4 trainable train clips (corrupted filtered: 0 frames), 2 val.
+- Encoder: DeterministicEncoder (offline) = 32 interpretable scalars (brightness/sharpness/clip/contrast/colour/corner-energy/edge) + fixed seeded random projection of a 16x16 patch grid -> feature_dim. Frozen, cached to .npy. ClipEncoder(open_clip) used only if weights local; auto falls back to deterministic.
+- BUG FOUND+FIXED: verdict head collapsed to the class marginal [0.5,0.25,0.25], ignoring the pooled embedding (dominant-constant LayerNorm'd vector). FIX: ground the verdict head on concat(clip_embed, dim_scores(6), flag_probs(9)) — matches §1 (verdict is a function of dims+flags+gates). After fix verdict learns (3/4 train correct; lowres borderline FIX/REJECT on 4-example set).
+- OpenCV 5.0 rejects Laplacian(float32, CV_64F); use uint8 gray for cv2 filters.
+- CORAL rank-consistency enforced by monotonically decreasing thresholds (softplus gaps); predicted level = #(P(y>k)>0.5). N/A dims masked from loss. Flags pos-weighted BCE (miss costs > false alarm) — unit-tested.
+- §5 pooling unit-tested: worst=min (temporal/motion), mean (others), max (flags); respects padding mask. Resume continues from checkpoint (last weights); best_model kept for inference.
+- CAVEAT: 8-clip sample set is a pipeline demo, not an accuracy benchmark; the only visual flag positive (watermark) lands in val, so the flag head sees 0 train positives — expected with this toy set.
