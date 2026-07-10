@@ -4,7 +4,8 @@ Architecture: frozen per-frame features -> input projection -> lightweight
 temporal transformer (2-4 layers) -> per-frame contextual embeddings, consumed
 by three head groups:
 
-- ``VerdictHead``    : 3-way softmax on the mean-pooled clip embedding.
+- ``VerdictHead``    : 3-way softmax on concat(mean-pooled clip embedding,
+                        6 dim scores, 9 flag probs) — grounded per taxonomy §1.
 - ``CoralDimHead``   : per-frame CORAL ordinal head (rank-consistent thresholds)
                         for one dimension; K=5 levels -> 4 thresholds.
 - ``FlagHead``       : per-frame independent sigmoid logits for the 9 flags.
