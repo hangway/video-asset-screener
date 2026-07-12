@@ -193,6 +193,40 @@ default deterministic encoder captures technical statistics, not identity —
 it verifies the mechanism but cannot judge whether a face/character matches;
 use a real CLIP/SigLIP encoder for meaningful consistency scores.
 
+### ViMax-aware continuity screening
+
+Point the screen stage at a rendered [ViMax](https://github.com/HKUDS/ViMax)
+working directory to preserve ViMax's production intent during evaluation:
+
+```bash
+pipeline run screen \
+  --vimax-workdir .working_dir/<session>/script2video \
+  --out runs/vimax-screened
+```
+
+The adapter also accepts a higher-level Idea2Video or Novel2Video session and
+discovers nested `shots/*/shot_description.json` artifacts. It screens only
+rendered `shots/*/video.mp4` clips and reports planned shots whose video is
+still missing.
+
+- **Assigned-character scoring** reads `ff_vis_char_idxs` / `lf_vis_char_idxs`
+  and `characters.json`, then limits each shot to its expected portrait set
+  from `character_portraits_registry.json`. A globally better match to an
+  unassigned character can no longer hide a wrong-subject result.
+- **Keyframe fidelity** compares the actual video head/tail with ViMax's
+  generated `first_frame.png` / `last_frame.png`. A failed endpoint raises the
+  existing `reference_inconsistency` flag. Portrait and keyframe embeddings
+  share the content-addressed cache, so unchanged shots are not re-embedded.
+- **Shot-boundary continuity** compares adjacent rendered shots. A low-similarity
+  boundary from the same ViMax camera requests human review; different-camera
+  cuts are measured but not gated.
+- **ViMax timeline report** adds shot order, camera, expected characters,
+  portrait score, keyframe score, within-shot drift, and boundary diagnostics
+  to `consistency_report.json` and the self-contained HTML report.
+
+This integration is read-only with respect to the ViMax workspace. Taxonomy
+v0.3.1 and the minimal inference schema remain unchanged.
+
 ## Skills
 
 Common operations are wrapped as Claude Code skills in `.claude/skills/`:

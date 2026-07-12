@@ -94,10 +94,15 @@ def run_screen(config: Optional[str] = typer.Option(None), workdir: Optional[str
                out: Optional[str] = typer.Option(None, help="output dir for screen report"),
                reference_dir: Optional[str] = typer.Option(
                    None, help="reference images (one subdir per subject) for "
-                              "consistency checks")):
+                              "consistency checks"),
+               vimax_workdir: Optional[str] = typer.Option(
+                   None, help="ViMax working directory; discover rendered "
+                              "shots, portraits, keyframes, and shot metadata")):
     cfg = _load(config, workdir, video_dir)
     if reference_dir:
         cfg.consistency.reference_dir = reference_dir
+    if vimax_workdir:
+        cfg.consistency.vimax_workdir = vimax_workdir
     from .stages import screen
 
     _print_summary(screen.run(cfg, out=out))

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -141,9 +142,15 @@ def detect_scene_times(path: str | Path, cfg) -> list[float]:
 
 
 def extract_frames(path: str | Path, cfg, out_dir: str | Path,
-                   duration_sec: float | None) -> SampleResult:
+                   duration_sec: float | None,
+                   include_tail: bool = False) -> SampleResult:
     """Decode + save sampled frames. Combines uniform §5 sampling with
-    best-effort scene-change frames, capped at ``cfg.max_frames``."""
+    best-effort scene-change frames, capped at ``cfg.max_frames``.
+
+    ``include_tail`` adds the final decodable frame timestamp. It is used by
+    ViMax continuity screening so last-keyframe and cross-shot boundary checks
+    inspect the actual endpoint; generic taxonomy sampling remains unchanged.
+    """
     path = str(path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -161,6 +168,14 @@ def extract_frames(path: str | Path, cfg, out_dir: str | Path,
 
     uniform = set(compute_sample_times(duration_sec, cfg))
     scene = set(round(t, 3) for t in detect_scene_times(path, cfg))
+    if include_tail and duration_sec > 0:
+        if vfps > 0 and total > 0:
+            tail_time = min(duration_sec - 1e-6, (total - 1) / vfps)
+        else:
+            tail_time = duration_sec - 1e-3
+        # Floor rather than round: a rounded-up target can sit a fraction of a
+        # millisecond after the actual final timestamp and never be reached.
+        uniform.add(math.floor(max(0.0, tail_time) * 1000.0) / 1000.0)
     target_times = sorted(uniform | scene)
     scene_lookup = {round(t, 3) for t in scene}
 

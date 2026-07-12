@@ -168,10 +168,26 @@ class ConsistencyConfig(BaseModel):
     # Directory of reference images: one subdirectory per subject (loose
     # images fall under subject "default"). None disables consistency checks.
     reference_dir: Optional[str] = None
+    # ViMax working directory. When set, the screen stage discovers rendered
+    # shots plus portraits, assigned characters, keyframes, camera IDs, and
+    # shot order directly from ViMax artifacts.
+    vimax_workdir: Optional[str] = None
     # Clip score = worst-frame best-match cosine vs the assigned subject's
     # references (§5). Below this the existing reference_inconsistency
     # hard-fail flag is raised at screen time.
-    min_reference_similarity: float = 0.5
+    min_reference_similarity: float = Field(default=0.5, ge=-1.0, le=1.0)
+    # ViMax video endpoints should preserve the generated first/last frames
+    # that conditioned the video generator.
+    min_keyframe_similarity: float = Field(default=0.5, ge=-1.0, le=1.0)
+    # An unassigned subject is a mismatch only when it beats the strongest
+    # expected subject by this margin.
+    subject_mismatch_margin: float = Field(default=0.05, ge=0.0, le=2.0)
+    # Adjacent shots from the same ViMax camera should retain continuity.
+    # Boundary failures request review rather than auto-rejecting because a
+    # planned action can legitimately change the frame substantially.
+    min_same_camera_boundary_similarity: float = Field(
+        default=0.5, ge=-1.0, le=1.0
+    )
     # How many worst per-frame offenders to list per clip in the report.
     report_worst_k: int = 3
     # Within-clip drift: max consecutive-frame cosine distance above this

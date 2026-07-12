@@ -53,6 +53,7 @@ def ref_dir(tmp_path):
 def test_config_reference_dir_default_none():
     cfg = PipelineConfig()
     assert cfg.consistency.reference_dir is None
+    assert cfg.consistency.vimax_workdir is None
 
 
 def test_config_reference_dir_from_yaml(tmp_path):
@@ -67,6 +68,20 @@ def test_config_consistency_rejects_unknown_fields(tmp_path):
     p.write_text("consistency:\n  reference_direction: oops\n")
     with pytest.raises(Exception):
         load_config(p)
+
+
+def test_config_vimax_workdir_and_thresholds(tmp_path):
+    p = tmp_path / "cfg.yaml"
+    p.write_text(
+        "consistency:\n"
+        "  vimax_workdir: .working_dir/session/script2video\n"
+        "  min_keyframe_similarity: 0.6\n"
+        "  min_same_camera_boundary_similarity: 0.4\n"
+    )
+    cfg = load_config(p)
+    assert cfg.consistency.vimax_workdir.endswith("script2video")
+    assert cfg.consistency.min_keyframe_similarity == pytest.approx(0.6)
+    assert cfg.consistency.min_same_camera_boundary_similarity == pytest.approx(0.4)
 
 
 # ------------------------------ indexing -----------------------------------
@@ -160,6 +175,47 @@ def test_score_clip_empty_inputs_return_none():
     assert score_clip(np.zeros((0, 4), dtype=np.float32), idx) is None
     assert score_clip(np.ones((2, 4), dtype=np.float32),
                       ReferenceIndex(encoder_name="x")) is None
+
+
+def test_score_clip_expected_subjects_constrain_assignment():
+    idx = _index_of(
+        expected=[[0.6, 0.8, 0.0, 0.0]],
+        intruder=[[0.0, 1.0, 0.0, 0.0]],
+    )
+    frames = np.array([[0.0, 1.0, 0.0, 0.0]] * 2, dtype=np.float32)
+
+    unconstrained = score_clip(frames, idx)
+    constrained = score_clip(frames, idx, expected_subjects=("expected",))
+
+    assert unconstrained.subject == "intruder"
+    assert constrained.subject == "expected"
+    assert constrained.best_subject == "intruder"
+    assert abs(constrained.score - 0.8) < 1e-6
+
+
+def test_score_clip_pools_multiple_expected_subjects_per_frame():
+    idx = _index_of(alice=[[1, 0, 0, 0]], bob=[[0, 1, 0, 0]])
+    frames = np.array([[1, 0, 0, 0], [0, 1, 0, 0]], dtype=np.float32)
+    cons = score_clip(frames, idx, expected_subjects=("alice", "bob"))
+
+    assert cons.subject == "alice + bob"
+    assert cons.expected_subjects == ("alice", "bob")
+    assert np.allclose(cons.per_frame, [1.0, 1.0])
+    assert cons.score == pytest.approx(1.0)
+
+
+def test_keyframe_similarity_compares_actual_endpoints():
+    from video_screener.consistency import score_keyframes
+
+    frames = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float32)
+    result = score_keyframes(
+        frames,
+        first_frame_embedding=np.array([1, 0, 0], dtype=np.float32),
+        last_frame_embedding=np.array([0, 1, 0], dtype=np.float32),
+    )
+    assert result.head_similarity == pytest.approx(1.0)
+    assert result.tail_similarity == pytest.approx(0.0)
+    assert result.score == pytest.approx(0.0)
 
 
 # ----------------------------- within-clip drift ----------------------------

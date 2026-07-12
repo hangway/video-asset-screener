@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 import torch
 
 from video_screener.config import PipelineConfig
@@ -164,6 +165,103 @@ def test_consistency_above_threshold_leaves_routing_alone(tmp_path):
     assert abs(rec.confidence - expected) < 1e-6           # head still decides
     assert cons["below_threshold"] is False
     InferenceRecord.model_validate(rec.model_dump())
+
+
+def test_assigned_subject_mismatch_cannot_hide_behind_global_best(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    idx = _ref_index(
+        expected=[[0.6, 0.8, 0.0, 0.0]],
+        intruder=[[0.0, 1.0, 0.0, 0.0]],
+    )
+    emb = [[0.0, 1.0, 0.0, 0.0]] * 2
+    model = _StubModel([8.0, 0.0, 0.0], NO_FLAGS, LEVEL4)
+
+    rec, cons = _screen_one(
+        model, _EmbeddingEncoder(emb), _meta(), _ok_sample(2), cfg,
+        "wrong_character", idx, expected_subjects=("expected",),
+    )
+
+    assert cons["reference_score"] == pytest.approx(0.8)
+    assert cons["best_subject"] == "intruder"
+    assert cons["subject_mismatch"] is True
+    assert cons["below_threshold"] is True
+    assert rec.verdict == "REJECT"
+    assert "reference_inconsistency" in rec.hard_fail_flags
+
+
+def test_vimax_keyframe_drift_triggers_reference_inconsistency(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    frames = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
+    model = _StubModel([8.0, 0.0, 0.0], NO_FLAGS, LEVEL4)
+
+    rec, cons = _screen_one(
+        model, _EmbeddingEncoder(frames), _meta(), _ok_sample(2), cfg,
+        "endpoint_drift", keyframe_embeddings={
+            "first": np.array([1.0, 0.0, 0.0, 0.0]),
+            "last": np.array([1.0, 0.0, 0.0, 0.0]),
+        },
+    )
+
+    assert cons["keyframes"]["head_similarity"] == pytest.approx(1.0)
+    assert cons["keyframes"]["tail_similarity"] == pytest.approx(0.0)
+    assert cons["keyframe_below_threshold"] is True
+    assert rec.verdict == "REJECT"
+    assert "reference_inconsistency" in rec.hard_fail_flags
+
+
+def test_missing_assigned_portraits_requests_review_without_reject(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    model = _StubModel([2.0, 1.0, 0.0], NO_FLAGS, LEVEL4)
+    empty = ReferenceIndex(encoder_name="stub")
+
+    rec, cons = _screen_one(
+        model, _StubEncoder(), _meta(), _ok_sample(2), cfg,
+        "missing_ref", empty, expected_subjects=("Alice",),
+    )
+
+    assert cons["score"] is None
+    assert cons["missing_expected_subjects"] == ["Alice"]
+    assert cons["below_threshold"] is False
+    assert rec.verdict == "PASS"
+    assert rec.needs_human_review is True
+
+
+def test_vimax_environment_shot_skips_unassigned_character_portraits(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    idx = _ref_index(unrelated_character=[[0.0, 1.0, 0.0, 0.0]])
+    frames = [[1.0, 0.0, 0.0, 0.0]] * 2
+    model = _StubModel([2.0, 1.0, 0.0], NO_FLAGS, LEVEL4)
+
+    rec, cons = _screen_one(
+        model, _EmbeddingEncoder(frames), _meta(), _ok_sample(2), cfg,
+        "environment", idx,
+        keyframe_embeddings={"first": np.array(frames[0])},
+        vimax_metadata={"first_frame_path": "first_frame.png",
+                        "last_frame_path": None},
+    )
+
+    assert cons["reference_score"] is None
+    assert cons["keyframe_score"] == pytest.approx(1.0)
+    assert cons["below_threshold"] is False
+    assert rec.verdict == "PASS"
+    assert rec.needs_human_review is False
+
+
+def test_vimax_missing_first_keyframe_requests_review(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    model = _StubModel([2.0, 1.0, 0.0], NO_FLAGS, LEVEL4)
+
+    rec, cons = _screen_one(
+        model, _StubEncoder(), _meta(), _ok_sample(2), cfg,
+        "missing_keyframe",
+        vimax_metadata={"first_frame_path": None, "last_frame_path": None},
+    )
+
+    assert cons["score"] is None
+    assert cons["missing_keyframes"] == ["first"]
+    assert cons["below_threshold"] is False
+    assert rec.verdict == "PASS"
+    assert rec.needs_human_review is True
 
 
 def test_drift_flags_morphing_candidate_for_review_not_reject(tmp_path):
@@ -326,6 +424,60 @@ def test_report_ranking_and_reference_gallery(tmp_path):
 
     plain = screen._build_report(rows, routing)        # no references -> no section
     assert "Reference consistency" not in plain
+
+
+def test_report_includes_vimax_shot_timeline_and_boundaries(tmp_path):
+    cfg = PipelineConfig(workdir=str(tmp_path / "run"))
+    idx = ReferenceIndex(encoder_name="stub")
+    entry = {
+        "asset_id": "scene_0__shot_0000",
+        "subject": "Alice",
+        "score": 0.8,
+        "reference_score": 0.8,
+        "keyframe_score": 0.7,
+        "per_subject": {},
+        "per_frame": [0.8],
+        "worst_frames": [],
+        "below_threshold": False,
+        "subject_mismatch": False,
+        "missing_expected_subjects": [],
+        "keyframe_below_threshold": False,
+        "drift_exceeds_threshold": False,
+        "max_drift": 0.1,
+        "vimax": {
+            "sequence_id": "scene_0",
+            "shot_idx": 0,
+            "camera_idx": 1,
+            "expected_subjects": ["Alice"],
+        },
+    }
+    doc = screen._build_consistency_doc([entry], idx, cfg)
+    doc["boundaries"] = [{
+        "sequence_id": "scene_0",
+        "from_shot_idx": 0,
+        "to_shot_idx": 1,
+        "from_camera_idx": 1,
+        "to_camera_idx": 1,
+        "same_camera": True,
+        "similarity": 0.2,
+        "below_threshold": True,
+    }]
+    doc["n_boundary_flagged"] = 1
+    rows = [{
+        "asset_id": "scene_0__shot_0000", "verdict": "PASS",
+        "confidence": 0.9, "hard_fail_flags": [], "scores": {},
+        "fix_actions": [], "primary_reasons": [],
+        "needs_human_review": True, "thumb": "",
+    }]
+    routing = {"n": 1, "n_needs_review": 1,
+               "counts": {"PASS": 1, "FIX": 0, "REJECT": 0}}
+
+    html = screen._build_report(rows, routing, doc, idx)
+    assert "ViMax continuity" in html
+    assert "ViMax sequence: scene_0" in html
+    assert "expected characters" in html
+    assert "Shot boundaries" in html
+    assert "needs review" in html
 
 
 @requires_ffmpeg
