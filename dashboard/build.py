@@ -18,13 +18,13 @@ TEMPLATE = Path(__file__).with_name("template.html")
 
 
 def _read_json(p: Path) -> Optional[Any]:
-    return json.loads(p.read_text()) if p.exists() else None
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
 
 
 def _read_jsonl(p: Path) -> list[dict]:
     if not p.exists():
         return []
-    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+    return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
 
 
 def _thumb(frame_path: Optional[str], max_w: int = 220) -> str:
@@ -127,7 +127,7 @@ def _assemble(workdir: str | Path) -> dict:
 
 def build_dashboard(workdir: str | Path, out: Optional[str | Path] = None) -> Path:
     data = _assemble(workdir)
-    template = TEMPLATE.read_text()
+    template = TEMPLATE.read_text(encoding="utf-8")
     payload = json.dumps(data, ensure_ascii=False)
     # inject between the /*__DATA__*/ ... /*__END__*/ markers
     start = template.index("/*__DATA__*/") + len("/*__DATA__*/")
@@ -135,5 +135,5 @@ def build_dashboard(workdir: str | Path, out: Optional[str | Path] = None) -> Pa
     html = template[:start] + payload + template[end:]
     dest = Path(out) if out else Path(workdir) / "dashboard.html"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(html)
+    dest.write_text(html, encoding="utf-8")
     return dest

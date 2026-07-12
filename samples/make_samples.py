@@ -74,7 +74,7 @@ def _encode(src_filter: str, extra_vf: str, out: Path, dur: float) -> None:
 
 
 def _sidecar(out_dir: Path, name: str, data: dict) -> None:
-    (out_dir / f"{name}.json").write_text(json.dumps(data, indent=2))
+    (out_dir / f"{name}.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 # --------------------------------------------------------------------------
@@ -284,7 +284,7 @@ def build_samples(out_dir: str | Path) -> list[Path]:
         "clips": [p.name for p in built],
         "count": len(built),
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return built
 
 

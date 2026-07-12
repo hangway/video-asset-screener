@@ -65,7 +65,7 @@ def _find_sidecar(file_path: str) -> Optional[dict]:
     sc = p.with_suffix(".json")
     if sc.exists():
         try:
-            return json.loads(sc.read_text())
+            return json.loads(sc.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             return None
     return None
