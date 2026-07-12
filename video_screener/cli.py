@@ -18,11 +18,13 @@ from rich.table import Table
 
 from .config import load_config
 from .generation.cli import app as generation_app
+from .workflows.cli import app as workflow_app
 
 app = typer.Typer(add_completion=False, help="AI video asset usability screening pipeline")
 run_app = typer.Typer(help="Run one stage or the full pipeline")
 app.add_typer(run_app, name="run")
 app.add_typer(generation_app, name="generate")
+app.add_typer(workflow_app, name="workflow")
 console = Console()
 
 STAGES = ["ingest", "prelabel", "annotate", "dataset", "train", "evaluate", "screen"]
