@@ -221,6 +221,37 @@ def test_edge_stability_within_sigma_is_not_an_outlier():
     assert es["head"]["outlier"] is False
 
 
+def test_tail_window_anchored_to_last_sample_not_duration():
+    from video_screener.consistency import edge_stability
+
+    # Real 8 s clip at 1 fps: compute_sample_times() emits t < duration, so
+    # the last sample is 7.0 — a duration-anchored tail (t > 8-1) was empty
+    # for EVERY integer-length clip (dogfood: tail.n_frames == 0 on all
+    # three 8 s Veo clips). The tail must anchor at the last sample instead.
+    times = [float(i) for i in range(8)]  # 0..7, exactly what sampling produces
+    es = edge_stability([0.9] * 8, [0.01] * 7, times, duration=8.0,
+                        window_sec=1.0, sigma=3.0)
+    assert es["head"]["n_frames"] == 1   # frame 0.0
+    assert es["tail"]["n_frames"] == 1   # frame 7.0 — was 0 before the fix
+    assert es["body"]["n_frames"] == 6   # frames 1.0..6.0
+
+
+def test_tail_outlier_fires_with_realistic_sample_times():
+    from video_screener.consistency import edge_stability
+
+    # Dogfood shape: 8 s Veo clip, uniform 1 fps + scene frames at 0.5/4.5.
+    times = [0.0, 0.5, 1.0, 2.0, 3.0, 4.0, 4.5, 5.0, 6.0, 7.0]
+    sim = [0.9] * 9 + [0.2]                # tail similarity collapses
+    drift = [0.01] * 8 + [0.5]             # tail pair (6.0 -> 7.0) jumps
+    es = edge_stability(sim, drift, times, duration=8.0,
+                        window_sec=1.0, sigma=3.0)
+    assert es["head"]["n_frames"] == 2 and es["tail"]["n_frames"] == 1
+    assert es["tail"]["outlier"] is True
+    actions = {t["action"]: t["suggested_trim_sec"] for t in es["trim_suggestions"]}
+    # cut from the last body frame (6.0) to the clip end (duration 8.0)
+    assert actions == {"trim_tail": 2.0}
+
+
 def test_edge_stability_degenerate_inputs_return_none():
     from video_screener.consistency import edge_stability
 

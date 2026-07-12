@@ -137,8 +137,16 @@ def edge_stability(per_frame_sim: list[float], drift: list[float],
                    window_sec: float = 1.0, sigma: float = 3.0) -> dict | None:
     """Head/tail edge-stability analysis against the clip body.
 
-    Frames are split into head (t < window), tail (t > end - window) and
-    body. An edge segment is a statistical outlier when its mean per-frame
+    Frames are split into head (t < window), tail (t > last_sample - window)
+    and body. The tail window is anchored at the last *sampled* timestamp,
+    not the container duration: uniform sampling emits frames strictly
+    before the duration (an 8 s clip at 1 fps samples t = 0..7), so a
+    duration-anchored window (t > duration - window) is empty by
+    construction for integer-length clips — the strict '>' lands exactly on
+    the last sample and tail analysis silently vanishes (trim_tail could
+    never fire on real clips).
+
+    An edge segment is a statistical outlier when its mean per-frame
     reference similarity falls below body_mean - sigma*body_std (similarity:
     lower is worse) OR its mean drift rises above body_mean + sigma*body_std
     (drift: higher is worse). Drift value i (frames i -> i+1) belongs to an
@@ -156,9 +164,10 @@ def edge_stability(per_frame_sim: list[float], drift: list[float],
         return None
     t = np.asarray(times, dtype=np.float64)
     end = float(duration) if duration else float(t.max())
+    last = float(t.max())  # tail anchor: last sampled frame, NOT duration
     head = [i for i in range(len(t)) if t[i] < window_sec]
     tail = [i for i in range(len(t))
-            if t[i] > end - window_sec and i not in head]
+            if t[i] > last - window_sec and i not in head]
     body = [i for i in range(len(t)) if i not in head and i not in tail]
     if not body:
         return None
