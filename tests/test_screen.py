@@ -265,7 +265,11 @@ def test_unstable_tail_routes_fix_with_trim_tail(tmp_path):
     es = cons["edge_stability"]
     assert es["tail"]["outlier"] is True and es["head"]["outlier"] is False
     assert es["trim_suggestions"][0]["action"] == "trim_tail"
-    assert abs(es["trim_suggestions"][0]["suggested_trim_sec"] - 1.0) < 1e-6
+    # tail window anchored at the last sample (2.5s): frames {2.0, 2.5} are
+    # the clip's last second of content, so the last body frame is 1.5 and
+    # the trim runs from there to the 3.0s clip end.
+    assert es["tail"]["n_frames"] == 2
+    assert abs(es["trim_suggestions"][0]["suggested_trim_sec"] - 1.5) < 1e-6
     InferenceRecord.model_validate(rec.model_dump())
 
 

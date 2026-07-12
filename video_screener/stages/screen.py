@@ -425,7 +425,7 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
         summary["n_reference_inconsistent"] = cons_doc["n_below_threshold"]
 
     html = _build_report(report_rows, routing_doc, cons_doc, ref_index)
-    (out_dir / "screen_report.html").write_text(html)
+    (out_dir / "screen_report.html").write_text(html, encoding="utf-8")
 
     return summary
 

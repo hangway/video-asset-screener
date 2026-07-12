@@ -42,7 +42,7 @@ def _read_description(shot_dir: Path) -> dict:
     if not p.exists():
         return {}
     try:
-        doc = json.loads(p.read_text())
+        doc = json.loads(p.read_text(encoding="utf-8"))
         return doc if isinstance(doc, dict) else {}
     except (json.JSONDecodeError, OSError):
         return {}
@@ -133,7 +133,7 @@ def portrait_subjects(root: str | Path) -> dict[str, list[Path]] | None:
     subjects: dict[str, list[Path]] = {}
     if reg.is_file():
         try:
-            doc = json.loads(reg.read_text())
+            doc = json.loads(reg.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             doc = None
         if isinstance(doc, dict):
