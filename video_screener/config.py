@@ -311,7 +311,7 @@ def load_config(path: Optional[str | Path] = None, **overrides: Any) -> Pipeline
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"config not found: {p}")
-        raw = yaml.safe_load(p.read_text()) or {}
+        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         if not isinstance(raw, dict):
             raise ValueError(f"config {p} must be a YAML mapping")
     raw.update(overrides)

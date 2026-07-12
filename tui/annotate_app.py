@@ -64,7 +64,7 @@ figure{{display:inline-block;margin:6px;text-align:center}}
 img{{width:200px;border:1px solid #333}}</style>
 <h2>{record.get('asset_id')} — verdict {record.get('verdict')}</h2>
 <div>{imgs}</div>"""
-    dest.write_text(html)
+    dest.write_text(html, encoding="utf-8")
     return dest
 
 
