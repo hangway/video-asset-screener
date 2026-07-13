@@ -1,0 +1,60 @@
+# CI for audit finding A4: the suite had only ever run on Linux, which is
+# how the Windows cp1252 UnicodeEncodeError (and A5) shipped.
+#
+# Constraints baked in:
+# - Tests use the COMMITTED samples/ clips; never run `pipeline samples`
+#   here — prelabel thresholds are calibrated to those exact bytes and a
+#   different ffmpeg build shifts borderline verdicts (audit A3).
+# - PYTHONUTF8 is deliberately NOT set on Windows: test_encoding.py must
+#   run under the real cp1252 default locale — relying on an implicit
+#   UTF-8 environment is exactly what shipped the original bug.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12"]
+    runs-on: ${{ matrix.os }}
+    # A5: lavfi drive-letter escaping bug — 5 known Windows failures
+    # (test_ffprobe_metrics, test_metrics_backend, test_stability_signals)
+    # until Task 4 lands. Flip to required (remove this) in Task 4's commit.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      # UNVERIFIED-LOCALLY: chocolatey ffmpeg install path/latency not
+      # testable from this Linux container; choco is preinstalled on
+      # windows-latest runners and `choco install ffmpeg` puts ffmpeg and
+      # ffprobe on PATH.
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+
+      # CPU-only torch explicitly: the default PyPI wheel on Linux drags in
+      # the multi-GB CUDA stack; the cpu index has small wheels for both OSes.
+      - name: Install CPU-only torch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install package
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest -q
