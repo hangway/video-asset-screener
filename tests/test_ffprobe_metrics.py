@@ -5,6 +5,7 @@ from __future__ import annotations
 from video_screener.utils.ffprobe_metrics import (
     SIGNAL_KEYS,
     SignalStats,
+    _escape_lavfi_path,
     parse_signal_frames,
     probe_signal_stats,
 )
@@ -35,6 +36,10 @@ FIXTURE = {
         },
     ]
 }
+
+
+def test_windows_path_is_escaped_for_lavfi_movie_source():
+    assert _escape_lavfi_path(r"C:\clips\a.mp4") == r"'C\:/clips/a.mp4'"
 
 
 def test_parse_fixture_json():
