@@ -60,9 +60,9 @@ def _to_float(v) -> float | None:
 
 
 def _escape_lavfi_path(path: str) -> str:
-    """Quote a filename for the ``movie=`` lavfi source: single-quote the
-    whole path and backslash-escape embedded backslashes and quotes."""
-    return "'" + path.replace("\\", "\\\\").replace("'", "\\'") + "'"
+    """Quote a filename for the ``movie=`` lavfi source."""
+    escaped = path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+    return f"'{escaped}'"
 
 
 def parse_signal_frames(doc: dict) -> list[dict]:

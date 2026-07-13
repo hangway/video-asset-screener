@@ -96,6 +96,37 @@ revision, license, workflow version, seed, hardware metadata, hashes, runtime,
 and output paths. ComfyUI should remain on a trusted local network; it is not
 an internet-facing authentication boundary.
 
+## Multi-engine workflow architecture
+
+The application now has a portable, node-based workflow contract inspired by
+FlowPix's separation of canvas authoring, personal workflows, reusable
+templates, community metadata, and generation history. The contract is
+backend-neutral: a future visual canvas and the CLI can edit the same JSON or
+YAML graph without coupling the application to ViMax, ComfyUI, the screener,
+or OpenMontage internals.
+
+The built-in template connects the complete production path:
+
+```text
+project inputs -> ViMax plan -> local image generation -> image gate
+  -> local video generation -> clip gate -> OpenMontage assembly
+  -> final delivery gate -> video + quality report + edit timeline
+```
+
+Validate or inspect it before connecting engine-specific adapters:
+
+```bash
+pipeline workflow validate configs/workflows/vimax-screen-openmontage.json
+pipeline workflow inspect configs/workflows/vimax-screen-openmontage.json
+```
+
+Each manifest records typed node ports, edges, canvas positions, public input
+and output slots, engine and model requirements, visibility, use cases,
+categories, and tags. Validation rejects missing endpoints, incompatible media
+types, ambiguous single-input wiring, unconnected required inputs, and cycles.
+The existing `generation.json` manifests provide the durable source for a
+future generation-history view; no hosted model provider is required.
+
 ## The 7 stages
 
 Each stage is independently runnable *and* chainable; artifacts land under

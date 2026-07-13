@@ -1,0 +1,244 @@
+{
+  "schema_version": "1.0",
+  "workflow_id": "vimax-screen-openmontage",
+  "name": "Consistent AI Video Production",
+  "description": "Plan with ViMax, generate locally, gate candidates with Video Asset Screener, and assemble with OpenMontage.",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "project-input",
+      "type": "input.project",
+      "label": "Project Inputs",
+      "category": "input",
+      "position": {"x": 0, "y": 180},
+      "engine": "application",
+      "inputs": [
+        {"name": "brief", "type": "text"},
+        {"name": "identity_reference", "type": "image", "required": false}
+      ],
+      "outputs": [
+        {"name": "brief", "type": "text"},
+        {"name": "identity_reference", "type": "image"}
+      ]
+    },
+    {
+      "id": "vimax-plan",
+      "type": "vimax.plan",
+      "label": "ViMax Story Plan",
+      "category": "planning",
+      "position": {"x": 300, "y": 180},
+      "engine": "vimax",
+      "inputs": [
+        {"name": "brief", "type": "text"},
+        {"name": "identity_reference", "type": "image", "required": false}
+      ],
+      "outputs": [
+        {"name": "shot_plan", "type": "json"},
+        {"name": "image_prompt", "type": "text"},
+        {"name": "video_prompt", "type": "text"}
+      ],
+      "config": {
+        "lock_identity": true,
+        "lock_style": true,
+        "emit_shot_constraints": true
+      }
+    },
+    {
+      "id": "image-generation",
+      "type": "generation.image",
+      "label": "Generate Keyframes",
+      "category": "generation",
+      "position": {"x": 620, "y": 0},
+      "engine": "comfyui",
+      "inputs": [
+        {"name": "prompt", "type": "text"},
+        {"name": "identity_reference", "type": "image", "required": false}
+      ],
+      "outputs": [
+        {"name": "candidates", "type": "image", "multiple": true}
+      ],
+      "config": {
+        "candidate_count": 4,
+        "request_contract": "ImageGenerationRequest"
+      }
+    },
+    {
+      "id": "image-screen",
+      "type": "screen.candidates",
+      "label": "Screen Keyframes",
+      "category": "screening",
+      "position": {"x": 930, "y": 0},
+      "engine": "video-asset-screener",
+      "inputs": [
+        {"name": "candidates", "type": "image", "multiple": true},
+        {"name": "shot_plan", "type": "json"}
+      ],
+      "outputs": [
+        {"name": "approved_frame", "type": "image"},
+        {"name": "report", "type": "json"},
+        {"name": "decision", "type": "decision"}
+      ],
+      "config": {
+        "gate": "identity_and_style",
+        "on_reject": "request_more_candidates"
+      }
+    },
+    {
+      "id": "video-generation",
+      "type": "generation.video",
+      "label": "Generate Clips",
+      "category": "generation",
+      "position": {"x": 1240, "y": 0},
+      "engine": "comfyui",
+      "inputs": [
+        {"name": "prompt", "type": "text"},
+        {"name": "first_frame", "type": "image"},
+        {"name": "shot_plan", "type": "json"}
+      ],
+      "outputs": [
+        {"name": "candidates", "type": "video", "multiple": true}
+      ],
+      "config": {
+        "candidate_count": 3,
+        "request_contract": "VideoGenerationRequest"
+      }
+    },
+    {
+      "id": "clip-screen",
+      "type": "screen.clip",
+      "label": "Screen Generated Clips",
+      "category": "screening",
+      "position": {"x": 1550, "y": 0},
+      "engine": "video-asset-screener",
+      "inputs": [
+        {"name": "candidates", "type": "video", "multiple": true},
+        {"name": "shot_plan", "type": "json"}
+      ],
+      "outputs": [
+        {"name": "approved_clip", "type": "video"},
+        {"name": "report", "type": "json"},
+        {"name": "decision", "type": "decision"}
+      ],
+      "config": {
+        "gate": "technical_semantic_continuity",
+        "on_reject": "request_more_candidates"
+      }
+    },
+    {
+      "id": "openmontage-compose",
+      "type": "openmontage.compose",
+      "label": "OpenMontage Assembly",
+      "category": "composition",
+      "position": {"x": 1860, "y": 180},
+      "engine": "openmontage",
+      "inputs": [
+        {"name": "clips", "type": "video", "multiple": true},
+        {"name": "shot_plan", "type": "json"},
+        {"name": "screening_report", "type": "json"}
+      ],
+      "outputs": [
+        {"name": "final_video", "type": "video"},
+        {"name": "timeline", "type": "json"}
+      ],
+      "config": {
+        "preserve_screening_metadata": true
+      }
+    },
+    {
+      "id": "final-screen",
+      "type": "screen.final",
+      "label": "Final Quality Gate",
+      "category": "screening",
+      "position": {"x": 2170, "y": 180},
+      "engine": "video-asset-screener",
+      "inputs": [
+        {"name": "video", "type": "video"},
+        {"name": "shot_plan", "type": "json"}
+      ],
+      "outputs": [
+        {"name": "approved_video", "type": "video"},
+        {"name": "report", "type": "json"},
+        {"name": "decision", "type": "decision"}
+      ],
+      "config": {
+        "gate": "delivery"
+      }
+    },
+    {
+      "id": "delivery-output",
+      "type": "output.delivery",
+      "label": "Delivery Package",
+      "category": "output",
+      "position": {"x": 2480, "y": 180},
+      "engine": "application",
+      "inputs": [
+        {"name": "video", "type": "video"},
+        {"name": "report", "type": "json"},
+        {"name": "timeline", "type": "json"}
+      ],
+      "outputs": [
+        {"name": "video", "type": "video"},
+        {"name": "report", "type": "json"},
+        {"name": "timeline", "type": "json"}
+      ]
+    }
+  ],
+  "edges": [
+    {"id": "brief-to-plan", "source_node": "project-input", "source_port": "brief", "target_node": "vimax-plan", "target_port": "brief"},
+    {"id": "reference-to-plan", "source_node": "project-input", "source_port": "identity_reference", "target_node": "vimax-plan", "target_port": "identity_reference"},
+    {"id": "prompt-to-image", "source_node": "vimax-plan", "source_port": "image_prompt", "target_node": "image-generation", "target_port": "prompt"},
+    {"id": "reference-to-image", "source_node": "project-input", "source_port": "identity_reference", "target_node": "image-generation", "target_port": "identity_reference"},
+    {"id": "images-to-screen", "source_node": "image-generation", "source_port": "candidates", "target_node": "image-screen", "target_port": "candidates"},
+    {"id": "plan-to-image-screen", "source_node": "vimax-plan", "source_port": "shot_plan", "target_node": "image-screen", "target_port": "shot_plan"},
+    {"id": "prompt-to-video", "source_node": "vimax-plan", "source_port": "video_prompt", "target_node": "video-generation", "target_port": "prompt"},
+    {"id": "frame-to-video", "source_node": "image-screen", "source_port": "approved_frame", "target_node": "video-generation", "target_port": "first_frame"},
+    {"id": "plan-to-video", "source_node": "vimax-plan", "source_port": "shot_plan", "target_node": "video-generation", "target_port": "shot_plan"},
+    {"id": "videos-to-screen", "source_node": "video-generation", "source_port": "candidates", "target_node": "clip-screen", "target_port": "candidates"},
+    {"id": "plan-to-clip-screen", "source_node": "vimax-plan", "source_port": "shot_plan", "target_node": "clip-screen", "target_port": "shot_plan"},
+    {"id": "clip-to-montage", "source_node": "clip-screen", "source_port": "approved_clip", "target_node": "openmontage-compose", "target_port": "clips"},
+    {"id": "plan-to-montage", "source_node": "vimax-plan", "source_port": "shot_plan", "target_node": "openmontage-compose", "target_port": "shot_plan"},
+    {"id": "report-to-montage", "source_node": "clip-screen", "source_port": "report", "target_node": "openmontage-compose", "target_port": "screening_report"},
+    {"id": "montage-to-final-screen", "source_node": "openmontage-compose", "source_port": "final_video", "target_node": "final-screen", "target_port": "video"},
+    {"id": "plan-to-final-screen", "source_node": "vimax-plan", "source_port": "shot_plan", "target_node": "final-screen", "target_port": "shot_plan"},
+    {"id": "video-to-delivery", "source_node": "final-screen", "source_port": "approved_video", "target_node": "delivery-output", "target_port": "video"},
+    {"id": "report-to-delivery", "source_node": "final-screen", "source_port": "report", "target_node": "delivery-output", "target_port": "report"},
+    {"id": "timeline-to-delivery", "source_node": "openmontage-compose", "source_port": "timeline", "target_node": "delivery-output", "target_port": "timeline"}
+  ],
+  "input_slots": [
+    {
+      "id": "creative-brief",
+      "label": "Creative brief",
+      "type": "text",
+      "target_node": "project-input",
+      "target_port": "brief",
+      "description": "Story, audience, format, duration, and visual direction."
+    },
+    {
+      "id": "identity-reference",
+      "label": "Identity reference",
+      "type": "image",
+      "target_node": "project-input",
+      "target_port": "identity_reference",
+      "required": false,
+      "description": "Optional character, product, or style reference image."
+    }
+  ],
+  "output_slots": [
+    {"id": "final-video", "label": "Approved video", "type": "video", "source_node": "delivery-output", "source_port": "video"},
+    {"id": "quality-report", "label": "Quality report", "type": "json", "source_node": "delivery-output", "source_port": "report"},
+    {"id": "edit-timeline", "label": "Edit timeline", "type": "json", "source_node": "delivery-output", "source_port": "timeline"}
+  ],
+  "publication": {
+    "visibility": "public",
+    "author": "video-asset-screener",
+    "summary": "A reusable local-first production flow with consistency and delivery gates.",
+    "use_cases": ["narrative-video", "multi-shot-consistency", "local-generation"],
+    "categories": ["video-production"],
+    "tags": ["vimax", "comfyui", "screening", "openmontage"],
+    "required_models": []
+  },
+  "metadata": {
+    "generation_manifest": "generation.json",
+    "screening_taxonomy": "0.3.1"
+  }
+}
