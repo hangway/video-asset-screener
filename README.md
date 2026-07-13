@@ -1,22 +1,68 @@
 # video-asset-screener
 
-A general-purpose, end-to-end **training + inference pipeline for screening the
-usability of AI-generated video assets** (Kling, Runway, Wan, Seedance, custom
-fine-tunes, …) for film/TV and short-form production workflows.
+An open-source framework for building, annotating, training, evaluating, and
+benchmarking AI-generated video usability screeners.
 
-Given a folder of clips, it routes each to **PASS / FIX / REJECT** with a verdict,
-6 scored quality dimensions, up to 9 canonical hard-fail flags, suggested
-`fix_actions`, a confidence, and a shareable HTML report — all aligned to the
-usability standard in [`taxonomy.md`](taxonomy.md).
+The repository provides a usable reference implementation: a seven-stage
+pipeline, a beta taxonomy, schemas, annotation tools, technical QC, reference
+checks, and an experimental checkpoint. Community datasets, annotations,
+encoders, checkpoints, and evaluation reports can be contributed without
+requiring a single maintainer to generate every clip.
 
-> **Taxonomy is law.** The usability standard, closed vocabulary (9 hard-fail
-> flag IDs, 6 dimensions, 3 verdicts, gate mins, aggregation rules, output
-> schemas) lives in `taxonomy.md` **v0.3.1** and is the single source of truth.
-> The code freezes a machine-readable projection of it in
-> `video_screener/taxonomy_schema.py`; a test asserts the two never drift.
-> Nothing invents or modifies a flag ID or schema field.
+> **Maturity**
+>
+> Framework: **usable**
+> Taxonomy: **beta**
+> Reference model: **experimental**
 
----
+> **Important limitations**
+>
+> The bundled sample set is a functional demo only, not an accuracy benchmark.
+> The included checkpoint is not a reliable general-purpose screener.
+> Confidence values are not calibrated. Subjective decisions still require
+> human review. The deterministic encoder cannot perform meaningful identity
+> verification; CLIP / SigLIP reference checks are still a general visual
+> similarity baseline, not a verified identity system.
+
+> **Taxonomy is law.** Taxonomy v0.3.1 remains the source of truth for the
+> three verdicts, six scored dimensions, nine hard-fail flags, gates, and output
+> schemas. This release adds community metadata around that contract without
+> changing its meanings.
+
+## Project documentation
+
+- [taxonomy.md](taxonomy.md) - normative taxonomy v0.3.1
+- [ANNOTATION_GUIDE.md](ANNOTATION_GUIDE.md) - practical annotation guidance
+- [CONTRIBUTING.md](CONTRIBUTING.md) - code, data, model, and documentation contributions
+- [DATA_CONTRIBUTION.md](DATA_CONTRIBUTION.md) - community video metadata and media
+- [DATASET_GOVERNANCE.md](DATASET_GOVERNANCE.md) - review and release governance
+- [BENCHMARK_SUBMISSION.md](BENCHMARK_SUBMISSION.md) - static benchmark reports
+- [ROADMAP.md](ROADMAP.md) - community roadmap
+- [SECURITY.md](SECURITY.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [project_status.yaml](project_status.yaml) - machine-readable maturity status
+
+## Benchmark status
+
+Future benchmark releases will be versioned, provider-aware, and held out where
+possible. The values below are placeholders, not measured performance.
+
+| Metric | Value |
+| --- | ---: |
+| Verdict accuracy | PLACEHOLDER |
+| Per-verdict precision / recall | PLACEHOLDER |
+| Mean dimension MAE | PLACEHOLDER |
+| Confidence calibration | not calibrated |
+| Benchmark release | not available |
+
+## What this project is not
+
+- a video generator;
+- a hosted SaaS, cloud service, or web server;
+- a replacement for human editorial review;
+- a production-certified QC system;
+- an authoritative copyright detector;
+- an accurate identity verifier using the deterministic encoder; or
+- a finished benchmark dataset.
 
 ## Install
 
@@ -34,7 +80,7 @@ pip install -e .
 The default per-frame encoder is **offline and deterministic** (no weights to
 download). To use a real CLIP/SigLIP image tower instead, install the `clip`
 extra (`pip install -e ".[clip]"`) and set `model.encoder: "clip:ViT-B-32"` —
-it falls back to the deterministic encoder if weights aren't available.
+an explicit clip request raises if the model cannot load; use encoder: "auto" to opt into deterministic fallback.
 
 ## Quickstart — one clip folder → screened output
 
