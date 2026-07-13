@@ -53,7 +53,7 @@
 <script>
 const R = window.__RUN__;
 const el = (h) => { const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstChild; };
-const esc = (s) => String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const esc = (s) => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const badge = (v) => `<span class="badge b-${v}">${v}</span>`;
 
 function stageStatus(){
@@ -120,7 +120,7 @@ function datasetViewer(){
     const img=a.thumb?`<img src="${a.thumb}">`:`<div class="noimg">no frame</div>`;
     const flags=(a.flags||[]).map(f=>`<span class="tag">${f}</span>`).join('')||'';
     const scores=Object.entries(a.scores||{}).map(([d,v])=>`${d.split('_')[0]}:${v}`).join(' ');
-    const dup=a.duplicate_of?`<span class="tag">dup→${a.duplicate_of}</span>`:'';
+    const dup=a.duplicate_of?`<span class="tag">dup→${esc(a.duplicate_of)}</span>`:'';
     return `<div class="card" data-v="${a.verdict}" data-s="${a.split||''}">
       ${img}<div class="body"><div class="top">${badge(a.verdict)}<span class="aid" title="${esc(a.asset_id)}">${esc(a.asset_id)}</span></div>
       <div class="meta">${a.split?`split:${a.split} · `:''}${a.duration_sec?a.duration_sec.toFixed(1)+'s':''}

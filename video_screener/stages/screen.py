@@ -55,6 +55,7 @@ instability never causes a REJECT.
 from __future__ import annotations
 
 import base64
+import html
 from pathlib import Path
 from typing import Any, Optional
 
@@ -438,11 +439,11 @@ def _consistency_sections(cons_doc: dict,
     if ref_index is not None:
         for name, refs in ref_index.subjects.items():
             thumbs = "".join(
-                f'<img src="{u}" title="{Path(p).name}">'
+                f'<img src="{u}" title="{html.escape(Path(p).name, quote=True)}">'
                 for p in refs.paths if (u := _thumb_data_uri(p, max_w=96))
             )
             galleries.append(
-                f'<div class="subj"><span class="sname">{name}</span> '
+                f'<div class="subj"><span class="sname">{html.escape(name)}</span> '
                 f'({len(refs.paths)} refs) {thumbs}</div>'
             )
     # ranking: per subject, clips ordered best -> worst consistency score
@@ -462,13 +463,13 @@ def _consistency_sections(cons_doc: dict,
         ranked = sorted(by_subject[name], key=lambda e: e["score"], reverse=True)
         rows_html = "".join(
             f'<tr class="{"below" if e["below_threshold"] else ""}">'
-            f'<td>{i + 1}</td><td>{e["asset_id"]}</td>'
+            f'<td>{i + 1}</td><td>{html.escape(e["asset_id"])}</td>'
             f'<td>{e["score"]:.3f}</td><td>{e.get("max_drift", 0):.3f}</td>'
             f'<td>{_markers(e)}</td></tr>'
             for i, e in enumerate(ranked)
         )
         tables.append(
-            f'<h3>{name}</h3><table class="rank">'
+            f'<h3>{html.escape(name)}</h3><table class="rank">'
             f'<tr><th>#</th><th>asset</th><th>consistency</th>'
             f'<th>max drift</th><th></th></tr>{rows_html}</table>'
         )
@@ -489,9 +490,9 @@ def _build_report(rows: list[dict], routing: dict,
     cards = []
     for r in rows:
         color = _BADGE.get(r["verdict"], "#555")
-        flags = ", ".join(r["hard_fail_flags"]) or "—"
-        fixes = ", ".join(r["fix_actions"]) or "—"
-        reasons = ", ".join(r["primary_reasons"]) or "—"
+        flags = html.escape(", ".join(r["hard_fail_flags"])) or "—"
+        fixes = html.escape(", ".join(r["fix_actions"])) or "—"
+        reasons = html.escape(", ".join(r["primary_reasons"])) or "—"
         scores = " ".join(f"{d.split('_')[0]}:{int(v)}" for d, v in (r.get("scores") or {}).items())
         review = " ⚠ needs review" if r["needs_human_review"] else ""
         img = f'<img src="{r["thumb"]}">' if r.get("thumb") else '<div class="noimg">no frame</div>'
@@ -499,7 +500,7 @@ def _build_report(rows: list[dict], routing: dict,
   {img}
   <div class="meta">
     <div class="hd"><span class="badge" style="background:{color}">{r['verdict']}</span>
-      <span class="aid">{r['asset_id']}</span>
+      <span class="aid">{html.escape(r['asset_id'])}</span>
       <span class="conf">conf {r['confidence']:.2f}{review}</span></div>
     <div class="row"><b>flags</b>: {flags}</div>
     <div class="row"><b>fix</b>: {fixes}</div>

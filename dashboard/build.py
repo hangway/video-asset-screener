@@ -128,7 +128,9 @@ def _assemble(workdir: str | Path) -> dict:
 def build_dashboard(workdir: str | Path, out: Optional[str | Path] = None) -> Path:
     data = _assemble(workdir)
     template = TEMPLATE.read_text(encoding="utf-8")
-    payload = json.dumps(data, ensure_ascii=False)
+    # <-escape '<' so a string like '</script>' in an asset id cannot
+    # terminate the inline <script> block the payload is injected into (A8)
+    payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
     # inject between the /*__DATA__*/ ... /*__END__*/ markers
     start = template.index("/*__DATA__*/") + len("/*__DATA__*/")
     end = template.index("/*__END__*/")
