@@ -16,7 +16,12 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError, field_validator, model_validator
 
-from .taxonomy_schema import CONTEXT_TAG_VALUES, TAXONOMY_VERSION
+from .taxonomy_schema import (
+    CONTEXT_TAG_VALUES,
+    HARD_FAIL_FLAGS,
+    TAXONOMY_VERSION,
+    VERDICTS,
+)
 
 ContributionStatus = Literal["community-submitted", "reviewed", "benchmark-eligible"]
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -150,6 +155,8 @@ class CommunityManifestRecord(BaseModel):
     provenance: CommunityProvenance
     context: CommunityContext
     annotation_path: str | None = None
+    human_verdict: str | None = None
+    hard_fail_flags: list[str] = Field(default_factory=list)
     licenses: CommunityLicenses
     risk_declarations: CommunityRiskDeclarations
     contribution_status: ContributionStatus
@@ -170,6 +177,21 @@ class CommunityManifestRecord(BaseModel):
             )
         return value
 
+    @field_validator("human_verdict")
+    @classmethod
+    def _human_verdict(cls, value: str | None) -> str | None:
+        if value is not None and value not in VERDICTS:
+            raise ValueError(f"human_verdict must be one of {VERDICTS}")
+        return value
+
+    @field_validator("hard_fail_flags")
+    @classmethod
+    def _hard_fail_flags(cls, value: list[str]) -> list[str]:
+        bad = [flag for flag in value if flag not in HARD_FAIL_FLAGS]
+        if bad:
+            raise ValueError(f"hard_fail_flags contains non-canonical IDs: {bad}")
+        return list(dict.fromkeys(value))
+
     @field_validator("annotation_path")
     @classmethod
     def _annotation_path(cls, value: str | None) -> str | None:
@@ -184,10 +206,10 @@ class CommunityManifestRecord(BaseModel):
     @model_validator(mode="after")
     def _eligibility(self) -> "CommunityManifestRecord":
         if self.contribution_status == "benchmark-eligible":
-            if not self.annotation_path:
+            if not self.annotation_path or not self.human_verdict:
                 raise ValueError(
                     "benchmark-eligible records require reviewed annotations "
-                    "via annotation_path"
+                    "via annotation_path and human_verdict"
                 )
             if not self.licenses.media_license:
                 raise ValueError(
@@ -237,6 +259,15 @@ def manifest_summary(records: list[CommunityManifestRecord]) -> dict[str, Any]:
         "annotation_licenses": counts([
             r.licenses.annotation_license or "(undeclared)" for r in records
         ]),
+        "human_verdicts": counts([
+            r.human_verdict or "(unreviewed)" for r in records
+        ]),
+        "hard_fail_flags": counts([
+            flag for r in records for flag in r.hard_fail_flags
+        ]),
+        "asset_roles": counts([r.context.asset_role for r in records]),
+        "aesthetic_families": counts([r.context.aesthetic_family for r in records]),
+        "motion_complexity": counts([r.context.motion_complexity for r in records]),
         "missing_prompt": sum(not r.provenance.prompt_available for r in records),
         "missing_references": sum(
             not r.provenance.reference_images_available for r in records
