@@ -23,10 +23,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.12"]
     runs-on: ${{ matrix.os }}
-    # A5: lavfi drive-letter escaping bug — 5 known Windows failures
-    # (test_ffprobe_metrics, test_metrics_backend, test_stability_signals)
-    # until Task 4 lands. Flip to required (remove this) in Task 4's commit.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    # Windows is REQUIRED since the A5 lavfi drive-letter escaping fix.
     steps:
       - uses: actions/checkout@v4
 
