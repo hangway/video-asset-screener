@@ -160,6 +160,12 @@ def build_encoder(cfg) -> DeterministicEncoder | ClipEncoder:
                 "identity, so reference-consistency results would be "
                 "meaningless. Use encoder 'auto' if a fallback is acceptable."
             ) from e
+    if spec != "auto":
+        raise ValueError(
+            f"unsupported encoder spec {spec!r}; expected 'auto', "
+            "'deterministic', or 'clip:<name>'"
+        )
+
     # auto
     try:
         return ClipEncoder("ViT-B-32", feature_dim=fdim)

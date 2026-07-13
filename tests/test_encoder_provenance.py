@@ -53,6 +53,20 @@ def test_auto_still_falls_back_to_deterministic(monkeypatch):
     assert built.name == "deterministic"
 
 
+def test_unknown_encoder_spec_does_not_fall_through_to_auto(monkeypatch):
+    def should_not_try_auto(*args, **kwargs):
+        pytest.fail("an unknown spec must be rejected before auto resolution")
+
+    monkeypatch.setattr(enc, "ClipEncoder", should_not_try_auto)
+    cfg = PipelineConfig()
+    cfg.model.encoder = "clpi:ViT-B-32"
+    with pytest.raises(
+        ValueError,
+        match=r"clpi:ViT-B-32.*auto.*deterministic.*clip:<name>",
+    ):
+        enc.build_encoder(cfg)
+
+
 def test_effective_encoder_name_reports_auto_downgrade(monkeypatch):
     monkeypatch.setattr(enc, "ClipEncoder", _failing_clip_encoder)
     cfg = PipelineConfig()
