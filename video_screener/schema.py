@@ -104,6 +104,12 @@ class AnnotationRecord(BaseModel):
     frame_evidence: list[FrameEvidence] = Field(default_factory=list)
     reviewer: str = ""
     review_date: str = ""
+    # Optional community provenance; blank/None preserves legacy records.
+    provider: str = ""
+    model: str = ""
+    generation_mode: str = ""
+    prompt_available: Optional[bool] = None
+    reference_available: Optional[bool] = None
 
     @field_validator("verdict")
     @classmethod
