@@ -56,7 +56,7 @@ open runs/screened/screen_report.html          # per-clip routing + reasons
 `pipeline` is installed as a console script; you can also call it as
 `python -m video_screener.cli`.
 
-## The 7 stages
+## The 8 stages
 
 Each stage is independently runnable *and* chainable; artifacts land under
 `--workdir` (default `runs/default`).
@@ -70,8 +70,31 @@ Each stage is independently runnable *and* chainable; artifacts land under
 | 5 | **train** | multi-task model: frozen per-frame features → temporal transformer → 3 heads (verdict softmax, 6 CORAL ordinal dims, 9 pos-weighted sigmoid flags); config-driven, resumable | `train/model.pt`, `train/train_log.json` |
 | 6 | **evaluate** | verdict confusion matrix, per-dimension MAE/exact/±1, per-flag P/R/F1, stratified by aesthetic_family + motion_complexity, worst-failure gallery, **verdict-vs-flags/dims consistency rate** | `evaluate/eval_report.json` |
 | 7 | **screen** | batch inference: objective delivery-failure override → predicted-flag override → head-primary verdict with §1 PASS-gate; §7.2 output + shareable HTML report | `screen/screen_results.jsonl`, `screen/screen_report.html` |
+| 8 | **describe** *(optional)* | semantic enrichment through the external `video-analyzer` CLI: key-frame descriptions + transcript; informational only and never changes screening verdicts | `describe/analysis.jsonl`, `describe/summary.json` |
 
 Run one stage: `pipeline run <stage> --config configs/default.yaml`.
+
+### Optional semantic descriptions
+
+The Screener can call the separately installed
+[`video-analyzer`](https://github.com/byjlw/video-analyzer) console script after
+screening. It is disabled by default and is not a package dependency, so the
+normal pipeline remains offline and deterministic. Configure the `describe:`
+block in `configs/default.yaml`, install `video-analyzer`, and run:
+
+```bash
+pipeline run describe --config configs/default.yaml
+```
+
+The stage writes one raw `analysis.json` per asset plus a JSONL manifest. It
+supports the analyzer's local Ollama client or an OpenAI-compatible API; keep
+API keys in an environment variable named by `describe.api_key_env`, never in
+the YAML file. `pipeline run all` skips the external call unless
+`describe.enabled: true`. Descriptions and transcripts enrich the dashboard
+but never change the taxonomy, screen results, or PASS/FIX/REJECT routing. To
+control cloud cost, set `describe.screen_verdicts: [PASS]` (or another closed
+set of verdicts); this requires an existing `screen/screen_results.jsonl` and
+describes only matching clips.
 
 ## Model architecture (stage 5)
 
@@ -213,8 +236,10 @@ ffmpeg and touches no sample encoding.
 
 ## Boundaries
 
-Video only. No still-image pipeline, no auth, no cloud, no web server. Deliverable
-is this pip-installable package + README.
+Video only. No still-image scoring pipeline, no auth, and no web server. The
+core screening stages are local/offline; the optional `describe` stage may call
+an explicitly configured local Ollama service or external OpenAI-compatible
+provider. Deliverable is this pip-installable package + README.
 
 **Audio is explicitly OUT OF SCOPE for v0.3.x**: clips are judged on visual
 usability alone — no audio decoding, sync, or loudness checks anywhere in the

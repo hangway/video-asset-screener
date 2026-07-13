@@ -22,7 +22,10 @@ run_app = typer.Typer(help="Run one stage or the full pipeline")
 app.add_typer(run_app, name="run")
 console = Console()
 
-STAGES = ["ingest", "prelabel", "annotate", "dataset", "train", "evaluate", "screen"]
+STAGES = [
+    "ingest", "prelabel", "annotate", "dataset", "train", "evaluate",
+    "screen", "describe",
+]
 
 
 def _load(config: Optional[str], workdir: Optional[str], video_dir: Optional[list[str]]):
@@ -101,6 +104,16 @@ def run_screen(config: Optional[str] = typer.Option(None), workdir: Optional[str
     from .stages import screen
 
     _print_summary(screen.run(cfg, out=out))
+
+
+@run_app.command("describe")
+def run_describe(config: Optional[str] = typer.Option(None), workdir: Optional[str] = None,
+                 video_dir: Optional[list[str]] = typer.Option(None)):
+    """Optionally enrich clips with semantic descriptions and transcripts."""
+    cfg = _load(config, workdir, video_dir)
+    from .stages import describe
+
+    _print_summary(describe.run(cfg))
 
 
 @run_app.command("all")

@@ -8,7 +8,7 @@ object is threaded through every stage; each stage reads its own sub-config.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -208,6 +208,69 @@ class ScreenConfig(BaseModel):
         return v
 
 
+class DescribeConfig(BaseModel):
+    """Optional semantic enrichment through the external ``video-analyzer`` CLI.
+
+    This stage is deliberately separate from screening: its LLM description and
+    transcript are informational artifacts and never change a PASS/FIX/REJECT
+    decision.  The executable is an optional integration rather than a package
+    dependency so the offline screening pipeline remains installable as-is.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    executable: str = "video-analyzer"
+    client: Literal["ollama", "openai_api"] = "ollama"
+    model: Optional[str] = None
+    ollama_url: Optional[str] = None
+    api_url: Optional[str] = None
+    # Secret values are read from the environment and are never written into
+    # stage artifacts.  The external CLI currently accepts the key as an
+    # argument, so callers should also avoid sharing process listings.
+    api_key_env: Optional[str] = None
+    prompt: str = ""
+    duration_sec: Optional[float] = None
+    max_frames: Optional[int] = None
+    whisper_model: Optional[str] = None
+    language: Optional[str] = None
+    device: Optional[str] = None
+    temperature: Optional[float] = None
+    keep_frames: bool = False
+    timeout_sec: int = 900
+    # Optional cost-control filter. When set, describe reads the existing
+    # screen results and enriches only matching verdicts (for example PASS).
+    screen_verdicts: Optional[list[Literal["PASS", "FIX", "REJECT"]]] = None
+
+    @field_validator("duration_sec")
+    @classmethod
+    def _duration_positive(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and v <= 0:
+            raise ValueError("describe.duration_sec must be > 0")
+        return v
+
+    @field_validator("max_frames")
+    @classmethod
+    def _frames_positive(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v <= 0:
+            raise ValueError("describe.max_frames must be > 0")
+        return v
+
+    @field_validator("temperature")
+    @classmethod
+    def _temperature_range(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and not 0.0 <= v <= 1.0:
+            raise ValueError("describe.temperature must be in [0, 1]")
+        return v
+
+    @field_validator("timeout_sec")
+    @classmethod
+    def _timeout_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("describe.timeout_sec must be > 0")
+        return v
+
+
 class PipelineConfig(BaseModel):
     """Root config validated on load. ``taxonomy_version`` is pinned."""
 
@@ -233,6 +296,7 @@ class PipelineConfig(BaseModel):
     train: TrainConfig = Field(default_factory=TrainConfig)
     evaluate: EvaluateConfig = Field(default_factory=EvaluateConfig)
     screen: ScreenConfig = Field(default_factory=ScreenConfig)
+    describe: DescribeConfig = Field(default_factory=DescribeConfig)
     consistency: ConsistencyConfig = Field(default_factory=ConsistencyConfig)
 
     @field_validator("metrics_backend")
