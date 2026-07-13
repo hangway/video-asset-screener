@@ -43,6 +43,7 @@ packages = [
     "video_screener.utils",
     "tui",
     "dashboard",
+    "samples",
 ]
 
 [tool.setuptools.package-data]
