@@ -201,9 +201,15 @@ Common operations are wrapped as Claude Code skills in `.claude/skills/`:
 ## Testing
 
 ```bash
-pytest -q          # ingest sampling+dedup, schema validation, split leakage,
+pytest -q          # everything: ingest sampling+dedup, schema validation, split leakage,
                    # eval metric math, model/CORAL/pooling, screen contract, TUI, dashboard
+pytest -m "not slow"   # fast tier: skips ffmpeg/ffprobe-dependent and training-loop
+                       # tests (~5 s measured vs ~3 min for the full suite with ffmpeg)
 ```
+
+The `slow` marker is applied automatically by the `requires_ffmpeg` gate —
+every training-loop test also sits behind it, so the fast tier needs no
+ffmpeg and touches no sample encoding.
 
 ## Boundaries
 
