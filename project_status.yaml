@@ -1,0 +1,7 @@
+release: "0.4.0"
+framework_maturity: "usable"
+taxonomy_maturity: "beta"
+reference_model_maturity: "experimental"
+taxonomy_version: "0.3.1"
+benchmark_available: false
+calibrated_confidence: false
