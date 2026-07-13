@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import PipelineConfig
+from ..models.encoder import effective_encoder_name
 from ..taxonomy_schema import TAXONOMY_VERSION, duration_bucket
 from ..utils import hashing, video
 from ..utils.ffprobe_metrics import probe_intervals
@@ -115,6 +116,7 @@ def run(cfg: PipelineConfig) -> dict[str, Any]:
 
     index = {
         "taxonomy_version": TAXONOMY_VERSION,
+        "encoder": effective_encoder_name(cfg),  # A6: downgrade provenance
         "stage": "ingest",
         "video_dirs": cfg.video_dirs,
         "n_assets": len(assets),

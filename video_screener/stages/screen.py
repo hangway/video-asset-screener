@@ -347,6 +347,7 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
         sample = video.extract_frames(path, cfg.ingest, frames_root / aid, meta.duration_sec)
         rec, cons = _screen_one(model, encoder, meta, sample, cfg, aid, ref_index,
                                 metrics_backend=mbackend)
+        rec.encoder = encoder.name  # A6: downgrade provenance per record
         if cons is not None:
             cons_entries.append(cons)
         InferenceRecord.model_validate(rec.model_dump())  # contract check
@@ -363,6 +364,7 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
         routing[r["verdict"]].append(r["asset_id"])
     routing_doc = {
         "taxonomy_version": TAXONOMY_VERSION,
+        "encoder": encoder.name,  # A6: downgrade provenance
         "n": len(records),
         "counts": {v: len(routing[v]) for v in VERDICTS},
         "n_needs_review": sum(1 for r in records if r["needs_human_review"]),

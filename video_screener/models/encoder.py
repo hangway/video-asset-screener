@@ -137,8 +137,13 @@ def build_encoder(cfg) -> DeterministicEncoder | ClipEncoder:
     """Resolve the encoder from ``cfg.model.encoder``.
 
     - ``"deterministic"`` -> DeterministicEncoder
-    - ``"clip:<name>"``   -> ClipEncoder (fallback to deterministic on failure)
+    - ``"clip:<name>"``   -> ClipEncoder; a load failure RAISES (audit A6):
+      an explicit spec that silently downgraded to the deterministic encoder
+      stripped reference-consistency screening of meaning with no trace
+      (the deterministic encoder cannot judge identity).
     - ``"auto"``          -> try a small local CLIP, else deterministic
+      (fallback is part of auto's contract, so it stays silent here; the
+      effective name is stamped into every stage artifact).
     """
     spec = cfg.model.encoder
     fdim = cfg.model.feature_dim
@@ -147,10 +152,35 @@ def build_encoder(cfg) -> DeterministicEncoder | ClipEncoder:
     if spec.startswith("clip:"):
         try:
             return ClipEncoder(spec.split(":", 1)[1], feature_dim=fdim)
-        except Exception:
-            return DeterministicEncoder(feature_dim=fdim)
+        except Exception as e:
+            raise RuntimeError(
+                f"encoder spec {spec!r} was requested explicitly but failed "
+                f"to load ({type(e).__name__}: {e}). Refusing to silently "
+                "fall back to the deterministic encoder — it cannot judge "
+                "identity, so reference-consistency results would be "
+                "meaningless. Use encoder 'auto' if a fallback is acceptable."
+            ) from e
     # auto
     try:
         return ClipEncoder("ViT-B-32", feature_dim=fdim)
     except Exception:
         return DeterministicEncoder(feature_dim=fdim)
+
+
+# Effective-name memo for stages that stamp provenance without keeping an
+# encoder (ingest, prelabel). Keyed by (spec, feature_dim); 'auto' resolution
+# is environment-dependent, so the memo avoids repeated CLIP load attempts.
+_NAME_CACHE: dict[tuple[str, int], str] = {}
+
+
+def effective_encoder_name(cfg) -> str:
+    """The name ``build_encoder(cfg)`` would resolve to, for artifact stamps.
+
+    Performs (once per spec) the same load attempt as ``build_encoder``, so
+    the stamped name records what actually runs, not what was configured —
+    an ``auto`` downgrade to ``deterministic`` is visible in every artifact.
+    """
+    key = (cfg.model.encoder, cfg.model.feature_dim)
+    if key not in _NAME_CACHE:
+        _NAME_CACHE[key] = build_encoder(cfg).name
+    return _NAME_CACHE[key]
