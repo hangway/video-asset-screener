@@ -9,8 +9,9 @@ CLIP/SigLIP features -> temporal transformer -> heads). Two backends:
   deterministic and network-free, so the whole pipeline runs and tests are
   reproducible without downloading any weights.
 - ``ClipEncoder`` (``encoder: "clip:<name>"``): a real CLIP/SigLIP image tower
-  via open_clip, used only when weights are locally available. Falls back to
-  the deterministic encoder if the model cannot be loaded (e.g. offline).
+  via open_clip, used only when weights are locally available. An explicit
+  request raises a clear error if the model cannot be loaded (e.g. offline);
+  use ``encoder: \"auto\"`` to opt into deterministic fallback.
 
 Both are FROZEN: no gradients flow into them; features are cached to disk.
 """
