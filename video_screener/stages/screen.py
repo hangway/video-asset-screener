@@ -70,7 +70,7 @@ from ..consistency import (
     index_references,
     score_clip,
 )
-from ..models.encoder import build_encoder
+from ..models.encoder import build_encoder, validate_checkpoint_encoder
 from ..models.model import MultiTaskScreener
 from ..schema import InferenceRecord
 from ..taxonomy_schema import (
@@ -318,6 +318,7 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
         raise FileNotFoundError(f"{ckpt_path} missing; run the train stage first")
     model, ckpt = load_model(ckpt_path)
     encoder = build_encoder(cfg)
+    validate_checkpoint_encoder(ckpt, encoder)
 
     out_dir = Path(out) if out else cfg.stage_dir("screen")
     frames_root = out_dir / "frames"

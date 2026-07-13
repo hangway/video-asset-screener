@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 
 from ..config import PipelineConfig
 from ..data.dataset import ScreenerDataset, collate, labels_from_batch
-from ..models.encoder import build_encoder
+from ..models.encoder import build_encoder, validate_checkpoint_encoder
 from ..models.losses import combined_loss
 from ..models.model import MultiTaskScreener
 from ..taxonomy_schema import DIMENSIONS, HARD_FAIL_FLAGS, TAXONOMY_VERSION, VERDICTS
@@ -96,6 +96,7 @@ def run(cfg: PipelineConfig, resume: bool = True) -> dict[str, Any]:
     history: list[dict] = []
     if resume and ckpt_path.exists():
         ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        validate_checkpoint_encoder(ckpt, encoder)
         if ckpt.get("feature_dim") == feature_dim:
             model.load_state_dict(ckpt["model"])
             optimizer.load_state_dict(ckpt["optimizer"])

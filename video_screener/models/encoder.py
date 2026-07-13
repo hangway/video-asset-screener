@@ -173,6 +173,24 @@ def build_encoder(cfg) -> DeterministicEncoder | ClipEncoder:
         return DeterministicEncoder(feature_dim=fdim)
 
 
+def validate_checkpoint_encoder(ckpt: dict, encoder) -> None:
+    """Refuse to feed a checkpoint features from a different encoder.
+
+    The deterministic and common CLIP backends can both emit 512-dimensional
+    vectors, so tensor shapes alone cannot detect a semantically incompatible
+    feature space. Checkpoints without encoder provenance retain the legacy
+    behavior for backward compatibility.
+    """
+    trained_encoder = ckpt.get("encoder")
+    if trained_encoder and trained_encoder != encoder.name:
+        raise RuntimeError(
+            f"checkpoint encoder {trained_encoder!r} does not match the "
+            f"effective encoder {encoder.name!r}. Refusing to use model "
+            "weights with a different feature space; restore the training "
+            "encoder or retrain the model."
+        )
+
+
 # Effective-name memo for stages that stamp provenance without keeping an
 # encoder (ingest, prelabel). Keyed by (spec, feature_dim); 'auto' resolution
 # is environment-dependent, so the memo avoids repeated CLIP load attempts.
