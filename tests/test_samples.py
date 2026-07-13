@@ -71,3 +71,27 @@ def _sidecar_to_record(data: dict) -> dict:
             for f in flags
         ]
     return rec
+
+
+# ---------------- overwrite guard (audit A3: calibration coupling) ----------
+def test_build_samples_refuses_overwrite_without_force(tmp_path):
+    import pytest
+    from samples.make_samples import build_samples, build_stability_samples
+
+    (tmp_path / "clean_pass.mp4").write_bytes(b"\x00")  # any existing clip
+    with pytest.raises(FileExistsError, match="calibrated"):
+        build_samples(tmp_path)
+    with pytest.raises(FileExistsError, match="calibrated"):
+        build_stability_samples(tmp_path)
+    # the dummy clip was not touched
+    assert (tmp_path / "clean_pass.mp4").read_bytes() == b"\x00"
+
+
+@requires_ffmpeg
+def test_build_samples_proceeds_with_force(tmp_path):
+    from samples.make_samples import build_samples
+
+    (tmp_path / "clean_pass.mp4").write_bytes(b"\x00")
+    built = build_samples(tmp_path, force=True)
+    assert len(built) == 8
+    assert (tmp_path / "clean_pass.mp4").stat().st_size > 1  # re-encoded

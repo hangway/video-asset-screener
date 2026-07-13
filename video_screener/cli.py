@@ -132,11 +132,24 @@ def run_all(config: Optional[str] = typer.Option(None), workdir: Optional[str] =
 
 
 @app.command("samples")
-def make_samples(out: str = typer.Option("samples", help="output directory")):
+def make_samples(out: str = typer.Option("samples", help="output directory"),
+                 force: bool = typer.Option(
+                     False, "--force",
+                     help="overwrite existing clips (WARNING: prelabel "
+                          "thresholds are calibrated to the committed clip "
+                          "bytes; re-encoding shifts borderline verdicts)")):
     """(Re)synthesize the ffmpeg sample clips + sidecars."""
     from samples.make_samples import build_samples
 
-    built = build_samples(out)
+    try:
+        built = build_samples(out, force=force)
+    except FileExistsError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    if force:
+        console.print("[yellow]warning:[/yellow] clips re-encoded — prelabel "
+                      "thresholds were calibrated to the previous bytes; "
+                      "re-run calibration or `git checkout -- samples/`.")
     console.print(f"built {len(built)} clips into {out}")
 
 

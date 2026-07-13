@@ -39,3 +39,15 @@ def test_cli_samples_builds_clips_from_non_repo_cwd(tmp_path):
                          capture_output=True, text=True, timeout=600)
     assert res.returncode == 0, f"stdout={res.stdout}\nstderr={res.stderr}"
     assert len(list(out.glob("*.mp4"))) == 8
+
+
+def test_cli_samples_refuses_overwrite_without_force(tmp_path):
+    """Guard fires before any encoding, so this needs no ffmpeg (audit A3)."""
+    out = tmp_path / "existing"
+    out.mkdir()
+    (out / "watermark.mp4").write_bytes(b"\x00")
+    res = subprocess.run([_cli(), "samples", "--out", str(out)], cwd=tmp_path,
+                         capture_output=True, text=True, timeout=120)
+    assert res.returncode != 0
+    assert "calibrated" in (res.stdout + res.stderr)
+    assert (out / "watermark.mp4").read_bytes() == b"\x00"
