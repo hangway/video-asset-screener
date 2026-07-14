@@ -161,6 +161,7 @@ workdir or inputs on the CLI: `--workdir`, `--video-dir`.
   flags, sparse scores, fix_actions, primary_reasons, needs_human_review.
 
 Validate any file: `pipeline validate <file.jsonl> --kind annotation|inference`.
+Validate community metadata without downloading media: `pipeline validate-manifest examples/community_dataset/manifest.jsonl`.
 
 ## Metrics backends (the measurement layer)
 
