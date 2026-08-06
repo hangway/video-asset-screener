@@ -116,6 +116,41 @@ workdir or inputs on the CLI: `--workdir`, `--video-dir`.
 
 Validate any file: `pipeline validate <file.jsonl> --kind annotation|inference`.
 
+## Screening ViMax output
+
+[ViMax](https://github.com/HKUDS/ViMax) (MIT) writes generated shots to
+`{working_dir}/shots/{idx}/video.mp4` with prompts and a character-portrait
+registry alongside (layout verified from source —
+`docs/audits/vimax-layout.md`). One command screens a whole run:
+
+```bash
+pipeline run screen --config configs/vimax.yaml --vimax-dir /path/to/working_dir
+```
+
+What you get:
+
+- every shot (both `shots/{idx}/` and idea2video's `scene_{n}/shots/{idx}/`)
+  routed **PASS / FIX / REJECT** per taxonomy v0.3.1, with shot idx encoded
+  in the `asset_id` (`shot_003`, `scene_0_shot_003`);
+- **character consistency for free**: the `character_portraits_registry.json`
+  (or the `character_portraits/` tree) is auto-detected and indexed as
+  per-subject references — below-threshold shots raise the existing
+  `reference_inconsistency` flag, and the report ranks shots per character
+  (an explicit `--reference-dir` still wins);
+- **head/tail trim suggestions** where the first/last-frame conditioning
+  left an unstable edge (`trim_head`/`trim_tail` route FIX, never REJECT) —
+  tuned for short i2v shots by the `configs/vimax.yaml` preset (denser §5
+  sampling for 5-8 s clips, more sensitive edge windows; global defaults
+  untouched);
+- `screen_report.html` cards carry each shot's prompt text, and
+  `vimax_manifest.json` maps every asset back to its shot idx, scene, and
+  prompts (kept OUTSIDE the closed §7.1/§7.2 schemas);
+- the usual `screen_results.jsonl` (§7.2), `routing.json`, and
+  `consistency_report.json` artifacts.
+
+Use a real CLIP/SigLIP encoder for meaningful character-consistency scores
+(see the encoder caveat under Notes).
+
 ## Metrics backends (the measurement layer)
 
 Technical dimension scoring (sharpness / exposure / temporal stability) reads

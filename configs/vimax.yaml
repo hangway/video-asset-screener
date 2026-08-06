@@ -1,0 +1,35 @@
+# ViMax screening preset (taxonomy v0.3.1 pinned — same LAW, tuned sampling).
+#
+# Rationale: docs/audits/vimax-layout.md §5-6. ViMax shots are short
+# (Seedance 5/10 s default 5, Veo 8 s), i2v-conditioned on first_frame.png
+# (and last_frame.png for medium/large variation), and concatenated as-is
+# into final_video.mp4 — so head/tail seconds matter and per-clip frame
+# counts are small. This preset ONLY tunes measurement density and edge
+# sensitivity; no gate, flag, or scoring semantics change, and the global
+# defaults are untouched.
+#
+#   pipeline run screen --config configs/vimax.yaml --vimax-dir <working_dir>
+taxonomy_version: "0.3.1"
+workdir: runs/vimax
+
+ingest:
+  # 5-8 s ViMax shots sit just above the generic <4 s dense-sampling floor;
+  # apply §5's own 0.5 s short-clip sampling to the whole ViMax population so
+  # worst-frame pooling and head/tail baselines get ~10-16 frames per shot
+  # instead of ~5-8. (Densifying sampling never loosens any gate.)
+  short_clip_threshold_sec: 9.0
+  # i2v shots occasionally come back near-still; keep detection responsive on
+  # 5 s clips (a 1 s freeze is already 20% of the shot).
+  freeze_min_sec: 1.0
+
+consistency:
+  # Edges are exactly where first/last-frame conditioning artifacts land.
+  # Keep the 1 s window (~2 frames at 0.5 s sampling) but raise sensitivity:
+  # a false positive only costs a human-reviewable trim_head/trim_tail FIX
+  # suggestion, never a REJECT.
+  edge_window_sec: 1.0
+  edge_outlier_sigma: 2.5
+  # min_reference_similarity intentionally NOT overridden: portraits are
+  # white-background full-body renders while shots are styled scenes, so the
+  # right threshold depends on the encoder — measure on real ViMax output
+  # with a CLIP encoder before tightening (see notes.md caveat).

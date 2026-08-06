@@ -82,6 +82,7 @@ from ..taxonomy_schema import (
 from ..utils import video
 from ..utils.io import write_json, write_jsonl
 from ..utils.metrics_backend import build_metrics_backend, segment_metric_summary
+from ..vimax import discover_shots, manifest_entry
 from .train import load_model
 
 _FIX_FOR_DIM = {
@@ -310,6 +311,22 @@ def _screen_one(model, encoder, meta: video.VideoMeta, sample: video.SampleResul
     ), cons_entry
 
 
+def _resolve_reference_dir(cfg: PipelineConfig) -> Optional[str]:
+    """Explicit consistency.reference_dir wins; otherwise a ViMax working_dir
+    containing a portrait registry (by file or by structure) is used
+    automatically so `screen --vimax-dir` gets consistency checks for free."""
+    if cfg.consistency.reference_dir:
+        return cfg.consistency.reference_dir
+    if cfg.vimax.working_dir:
+        from ..vimax import PORTRAIT_DIRNAME, PORTRAIT_REGISTRY_FILENAME
+
+        wd = Path(cfg.vimax.working_dir)
+        if (wd / PORTRAIT_REGISTRY_FILENAME).is_file() or \
+                (wd / PORTRAIT_DIRNAME).is_dir():
+            return str(wd)
+    return None
+
+
 def run(cfg: PipelineConfig, out: Optional[str] = None,
         video_dir: Optional[list[str]] = None) -> dict[str, Any]:
     ckpt_path = cfg.stage_dir("train") / "model.pt"
@@ -324,24 +341,30 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
 
     # optional reference index for consistency checks (same encoder, cached)
     ref_index: Optional[ReferenceIndex] = None
-    if cfg.consistency.reference_dir:
-        ref_index = index_references(
-            cfg.consistency.reference_dir, encoder, cfg.root / "reference_cache"
-        )
+    ref_dir = _resolve_reference_dir(cfg)
+    if ref_dir:
+        ref_index = index_references(ref_dir, encoder, cfg.root / "reference_cache")
     mbackend = build_metrics_backend(cfg)
 
-    dirs = video_dir or cfg.video_dirs
-    paths = video.find_videos(dirs)
+    # source discovery: a ViMax working_dir preset, or plain video dirs
+    vimax_shots = None
+    if cfg.vimax.working_dir:
+        vimax_shots = discover_shots(cfg.vimax.working_dir)
+        sources = [(s.asset_id, Path(s.video_path), s) for s in vimax_shots]
+    else:
+        dirs = video_dir or cfg.video_dirs
+        sources = [(p.stem, p, None) for p in video.find_videos(dirs)]
     records: list[dict] = []
     taken: set[str] = set()
     report_rows: list[dict] = []
     cons_entries: list[dict] = []
+    vmx_manifest: list[dict] = []
 
-    for path in paths:
-        aid = path.stem
+    for base, path, vshot in sources:
+        aid = base
         n = 1
         while aid in taken:
-            aid = f"{path.stem}_{n}"; n += 1
+            aid = f"{base}_{n}"; n += 1
         taken.add(aid)
         meta = video.probe(path)
         sample = video.extract_frames(path, cfg.ingest, frames_root / aid, meta.duration_sec)
@@ -353,8 +376,15 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
         records.append(rec.model_dump())
         thumb = _thumb_data_uri(sample.frames[len(sample.frames) // 2].path
                                 if sample.frames else None)
-        report_rows.append({**rec.model_dump(), "file_path": str(path),
-                            "duration_sec": meta.duration_sec, "thumb": thumb})
+        row = {**rec.model_dump(), "file_path": str(path),
+               "duration_sec": meta.duration_sec, "thumb": thumb}
+        if vshot is not None:
+            # shot idx + prompt ride OUTSIDE the closed §7.2 record: manifest
+            # sidecar + report row (and the shot idx is encoded in asset_id)
+            vmx_manifest.append(manifest_entry(vshot, aid))
+            row["vimax"] = {"shot_idx": vshot.shot_idx, "scene": vshot.scene,
+                            "prompt": vshot.prompt}
+        report_rows.append(row)
 
     write_jsonl(out_dir / "screen_results.jsonl", records)
 
@@ -378,6 +408,15 @@ def run(cfg: PipelineConfig, out: Optional[str] = None,
         "results_path": str(out_dir / "screen_results.jsonl"),
         "report_path": str(out_dir / "screen_report.html"),
     }
+    if vimax_shots is not None:
+        write_json(out_dir / "vimax_manifest.json", {
+            "working_dir": cfg.vimax.working_dir,
+            "n_shots": len(vmx_manifest),
+            "shots": vmx_manifest,
+        })
+        summary["vimax_manifest_path"] = str(out_dir / "vimax_manifest.json")
+        summary["n_vimax_shots"] = len(vmx_manifest)
+
     cons_doc = None
     if ref_index is not None:
         cons_doc = _build_consistency_doc(cons_entries, ref_index, cfg)
@@ -482,6 +521,8 @@ def _consistency_sections(cons_doc: dict,
 def _build_report(rows: list[dict], routing: dict,
                   cons_doc: Optional[dict] = None,
                   ref_index: Optional[ReferenceIndex] = None) -> str:
+    import html as _html
+
     counts = routing["counts"]
     cons_html = _consistency_sections(cons_doc, ref_index) if cons_doc else ""
     cards = []
@@ -490,6 +531,14 @@ def _build_report(rows: list[dict], routing: dict,
         flags = ", ".join(r["hard_fail_flags"]) or "—"
         fixes = ", ".join(r["fix_actions"]) or "—"
         reasons = ", ".join(r["primary_reasons"]) or "—"
+        vmx = ""
+        if r.get("vimax"):
+            v = r["vimax"]
+            where = f"{v['scene']} · " if v.get("scene") else ""
+            # ViMax prompts carry <Character> markers -> must be escaped
+            prompt = _html.escape((v.get("prompt") or "")[:160])
+            vmx = (f'<div class="row"><b>shot</b>: {where}#{v["shot_idx"]}'
+                   f'{" · " + prompt if prompt else ""}</div>')
         scores = " ".join(f"{d.split('_')[0]}:{int(v)}" for d, v in (r.get("scores") or {}).items())
         review = " ⚠ needs review" if r["needs_human_review"] else ""
         img = f'<img src="{r["thumb"]}">' if r.get("thumb") else '<div class="noimg">no frame</div>'
@@ -499,7 +548,7 @@ def _build_report(rows: list[dict], routing: dict,
     <div class="hd"><span class="badge" style="background:{color}">{r['verdict']}</span>
       <span class="aid">{r['asset_id']}</span>
       <span class="conf">conf {r['confidence']:.2f}{review}</span></div>
-    <div class="row"><b>flags</b>: {flags}</div>
+    {vmx}<div class="row"><b>flags</b>: {flags}</div>
     <div class="row"><b>fix</b>: {fixes}</div>
     <div class="row"><b>reasons</b>: {reasons}</div>
     <div class="row scores">{scores}</div>
