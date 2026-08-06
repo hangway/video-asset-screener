@@ -40,3 +40,13 @@ dataset:
 
 screen:
   review_confidence_threshold: 0.55
+
+consistency:
+  # Optional generic reference folder, or a ViMax working directory. Leave
+  # both null to disable reference/continuity checks.
+  reference_dir: null
+  vimax_workdir: null
+  min_reference_similarity: 0.5
+  min_keyframe_similarity: 0.5
+  subject_mismatch_margin: 0.05
+  min_same_camera_boundary_similarity: 0.5

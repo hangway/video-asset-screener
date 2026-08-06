@@ -20,6 +20,8 @@ invalidates only that subject's cache entry.
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -97,6 +99,24 @@ class ClipConsistency:
     score: float                 # worst-frame best-match cosine, in [-1, 1]
     per_frame: list[float]       # best-match cosine per (sampled) frame
     per_subject: dict[str, float]  # worst-frame score against every subject
+    best_subject: str | None = None  # unconstrained best subject in the index
+    expected_subjects: tuple[str, ...] = ()
+
+
+@dataclass
+class KeyframeConsistency:
+    """Similarity between clip endpoints and ViMax's generated keyframes."""
+
+    head_similarity: float | None = None
+    tail_similarity: float | None = None
+
+    @property
+    def score(self) -> float | None:
+        values = [
+            value for value in (self.head_similarity, self.tail_similarity)
+            if value is not None
+        ]
+        return min(values) if values else None
 
 
 def _normalize_rows(x: np.ndarray) -> np.ndarray:
@@ -109,6 +129,33 @@ def frame_reference_similarity(frame_embeddings: np.ndarray,
     """Best-match cosine per frame: [T,D] x [R,D] -> [T] (max over refs)."""
     sims = _normalize_rows(frame_embeddings) @ _normalize_rows(ref_embeddings).T
     return sims.max(axis=1)
+
+
+def cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
+    """Cosine similarity for two individual embedding vectors."""
+    a = np.asarray(left, dtype=np.float32).reshape(1, -1)
+    b = np.asarray(right, dtype=np.float32).reshape(1, -1)
+    return float((_normalize_rows(a) * _normalize_rows(b)).sum())
+
+
+def score_keyframes(
+    frame_embeddings: np.ndarray,
+    first_frame_embedding: np.ndarray | None = None,
+    last_frame_embedding: np.ndarray | None = None,
+) -> KeyframeConsistency | None:
+    """Compare actual clip endpoints with planned first/last frame images."""
+    if frame_embeddings.size == 0:
+        return None
+    head = (
+        cosine_similarity(frame_embeddings[0], first_frame_embedding)
+        if first_frame_embedding is not None else None
+    )
+    tail = (
+        cosine_similarity(frame_embeddings[-1], last_frame_embedding)
+        if last_frame_embedding is not None else None
+    )
+    result = KeyframeConsistency(head_similarity=head, tail_similarity=tail)
+    return result if result.score is not None else None
 
 
 def frame_drift(frame_embeddings: np.ndarray) -> np.ndarray:
@@ -226,12 +273,19 @@ def edge_stability(per_frame_sim: list[float], drift: list[float],
     }
 
 
-def score_clip(frame_embeddings: np.ndarray,
-               index: ReferenceIndex) -> ClipConsistency | None:
-    """Score a clip's frames against every subject; assign the best subject.
+def score_clip(
+    frame_embeddings: np.ndarray,
+    index: ReferenceIndex,
+    expected_subjects: list[str] | tuple[str, ...] | None = None,
+) -> ClipConsistency | None:
+    """Score a clip against reference subjects.
 
-    Returns None when there is nothing to compare (no frames or no reference
-    images)."""
+    Generic screening assigns the globally best subject. When ViMax supplies
+    ``expected_subjects``, references are restricted to that set and pooled as
+    a union per frame. That prevents a wrong character from passing merely
+    because it resembles some other portrait in the project, while still
+    supporting shots containing multiple expected characters.
+    """
     if frame_embeddings.size == 0 or not index:
         return None
     per_subject: dict[str, float] = {}
@@ -245,35 +299,60 @@ def score_clip(frame_embeddings: np.ndarray,
     if not per_subject:
         return None
     best = max(per_subject, key=per_subject.get)
+
+    if expected_subjects is None:
+        selected = (best,)
+        per_frame = per_frame_by_subject[best]
+        label = best
+    else:
+        selected = tuple(
+            subject for subject in expected_subjects
+            if subject in index.subjects
+            and index.subjects[subject].embeddings.size > 0
+        )
+        if not selected:
+            return None
+        references = np.concatenate(
+            [index.subjects[subject].embeddings for subject in selected], axis=0
+        )
+        per_frame = frame_reference_similarity(frame_embeddings, references)
+        label = " + ".join(selected)
+
     return ClipConsistency(
-        subject=best,
-        score=per_subject[best],
-        per_frame=[float(v) for v in per_frame_by_subject[best]],
+        subject=label,
+        score=float(per_frame.min()),
+        per_frame=[float(v) for v in per_frame],
         per_subject=per_subject,
+        best_subject=best,
+        expected_subjects=selected if expected_subjects is not None else (),
     )
 
 
-def index_references(reference_dir: str | Path, encoder,
-                     cache_dir: str | Path) -> ReferenceIndex:
-    """Embed all reference images per subject via ``encoder``, with caching.
+def _safe_cache_component(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_.-")
+    return cleaned or "subject"
 
-    Cache entries live in ``cache_dir`` as
-    ``<encoder-name>__<subject>__<content-digest>.npy``; a hit skips the
-    encoder entirely. Unreadable images are skipped by the encoder (same
-    behaviour as frame encoding); a subject whose images all fail to decode
-    is kept with an empty embedding matrix.
-    """
-    reference_dir = Path(reference_dir)
-    if not reference_dir.is_dir():
-        raise FileNotFoundError(f"reference_dir not found: {reference_dir}")
+
+def index_reference_paths(
+    subject_paths: dict[str, list[str | Path]],
+    encoder,
+    cache_dir: str | Path,
+) -> ReferenceIndex:
+    """Embed an explicit subject-to-image map with per-subject caching."""
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     enc_key = encoder.name.replace(":", "_").replace("/", "_")
     index = ReferenceIndex(encoder_name=encoder.name)
-    for subject, paths in _list_subject_images(reference_dir).items():
+    for subject, supplied_paths in sorted(subject_paths.items()):
+        paths = sorted({Path(path).resolve() for path in supplied_paths
+                        if Path(path).is_file()
+                        and Path(path).suffix.lower() in IMAGE_EXTS})
+        if not paths:
+            continue
         digest = _content_digest(paths)
-        cache = cache_dir / f"{enc_key}__{subject}__{digest}.npy"
+        subject_key = _safe_cache_component(subject)
+        cache = cache_dir / f"{enc_key}__{subject_key}__{digest}.npy"
         if cache.exists():
             emb = np.load(cache)
         else:
@@ -284,3 +363,46 @@ def index_references(reference_dir: str | Path, encoder,
             embeddings=emb.astype(np.float32),
         )
     return index
+
+
+def index_references(reference_dir: str | Path, encoder,
+                     cache_dir: str | Path) -> ReferenceIndex:
+    """Embed a directory of per-subject reference images, with caching."""
+    reference_dir = Path(reference_dir)
+    if not reference_dir.is_dir():
+        raise FileNotFoundError(f"reference_dir not found: {reference_dir}")
+    return index_reference_paths(
+        _list_subject_images(reference_dir), encoder, cache_dir
+    )
+
+
+def merge_reference_indexes(*indexes: ReferenceIndex) -> ReferenceIndex:
+    """Merge indexes produced by the same encoder, deduplicating image paths."""
+    available = [index for index in indexes if index is not None]
+    if not available:
+        raise ValueError("at least one reference index is required")
+    encoder_name = available[0].encoder_name
+    if any(index.encoder_name != encoder_name for index in available):
+        raise ValueError("cannot merge reference indexes from different encoders")
+
+    merged = ReferenceIndex(encoder_name=encoder_name)
+    rows: dict[str, list[tuple[str, np.ndarray]]] = {}
+    seen: dict[str, set[str]] = {}
+    for index in available:
+        for subject, references in index.subjects.items():
+            subject_seen = seen.setdefault(subject, set())
+            for path, embedding in zip(references.paths, references.embeddings):
+                key = os.path.normcase(str(Path(path).resolve()))
+                if key not in subject_seen:
+                    rows.setdefault(subject, []).append((path, embedding))
+                    subject_seen.add(key)
+
+    for subject, items in rows.items():
+        merged.subjects[subject] = SubjectReferences(
+            subject=subject,
+            paths=[path for path, _ in items],
+            embeddings=np.stack([embedding for _, embedding in items]).astype(
+                np.float32
+            ),
+        )
+    return merged

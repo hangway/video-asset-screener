@@ -104,3 +104,18 @@ def test_ingest_frames_written(tmp_path, synth_samples):
     ingest.run(cfg)
     frames = list((tmp_path / "run" / "ingest" / "frames" / "clean_pass").glob("*.jpg"))
     assert len(frames) == 5
+
+
+@requires_ffmpeg
+def test_opt_in_tail_sample_reaches_final_decodable_frame(tmp_path, synth_samples):
+    cfg = PipelineConfig().ingest
+    clip = synth_samples / "clean_pass.mp4"
+    meta = video.probe(clip)
+    sampled = video.extract_frames(
+        clip, cfg, tmp_path / "tail_frames", meta.duration_sec,
+        include_tail=True,
+    )
+
+    assert sampled.decode_ok is True
+    assert sampled.frames[-1].time_sec > 4.9
+    assert len(sampled.frames) == 6
