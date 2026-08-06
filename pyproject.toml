@@ -41,6 +41,7 @@ packages = [
     "video_screener.models",
     "video_screener.data",
     "video_screener.utils",
+    "video_screener.generation",
     "tui",
     "dashboard",
 ]

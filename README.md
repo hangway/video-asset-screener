@@ -56,6 +56,46 @@ open runs/screened/screen_report.html          # per-clip routing + reasons
 `pipeline` is installed as a console script; you can also call it as
 `python -m video_screener.cli`.
 
+## Local open-model generation
+
+The optional generation layer connects to a local or LAN ComfyUI server. It
+does not require a hosted-provider SDK or API key. Export a workflow with
+ComfyUI's **Save (API Format)** command, then provide a small bindings file
+that identifies the workflow inputs the application may change:
+
+```json
+{
+  "prompt": {"node_id": "6", "input_name": "text"},
+  "negative_prompt": {"node_id": "7", "input_name": "text"},
+  "seed": {"node_id": "3", "input_name": "seed"},
+  "width": {"node_id": "5", "input_name": "width"},
+  "height": {"node_id": "5", "input_name": "height"},
+  "references": {}
+}
+```
+
+The node IDs are workflow-specific. Generate two reproducible image
+candidates with:
+
+```bash
+pipeline generate image \
+  --workflow workflows/image-api.json \
+  --bindings workflows/image-bindings.json \
+  --prompt "A consistent character portrait" \
+  --model-id local/image-model \
+  --model-revision sha256:MODEL_HASH \
+  --model-license Apache-2.0 \
+  --seed 42 --candidates 2 --out runs/generation
+```
+
+`pipeline generate video` uses the same contract and additionally supports
+FPS, duration/frame-count bindings, first/last keyframes, and role-based
+references (`--reference character=/path/to/portrait.png`). Each run writes
+`generation.json` beside its candidates with the prompt, references, model
+revision, license, workflow version, seed, hardware metadata, hashes, runtime,
+and output paths. ComfyUI should remain on a trusted local network; it is not
+an internet-facing authentication boundary.
+
 ## The 7 stages
 
 Each stage is independently runnable *and* chainable; artifacts land under
