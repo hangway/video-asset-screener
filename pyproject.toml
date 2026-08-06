@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video-asset-screener"
-version = "0.1.0"
+version = "0.4.0"
 description = "General-purpose AI video asset usability screening pipeline (taxonomy v0.3.1)"
 readme = "README.md"
 requires-python = ">=3.10"

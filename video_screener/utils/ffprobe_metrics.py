@@ -60,9 +60,18 @@ def _to_float(v) -> float | None:
 
 
 def _escape_lavfi_path(path: str) -> str:
-    """Quote a filename for the ``movie=`` lavfi source: single-quote the
-    whole path and backslash-escape embedded backslashes and quotes."""
-    return "'" + path.replace("\\", "\\\\").replace("'", "\\'") + "'"
+    """Quote a filename for the ``movie=`` lavfi source.
+
+    ffmpeg applies TWO escaping levels: the filtergraph parser strips the
+    outer single quotes (quoted text is literal at that level), then the
+    movie filter's own option parser splits on ``:`` and unescapes ``\\``.
+    The path therefore needs option-level escaping *inside* the quotes:
+    ``\\`` -> ``\\\\`` and ``:`` -> ``\\:``. Without the colon escape a
+    Windows drive letter terminates the filename option at ``C`` and every
+    ffprobe-backed metric fails on Windows (audit A5, PR #10)."""
+    return ("'"
+            + path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+            + "'")
 
 
 def parse_signal_frames(doc: dict) -> list[dict]:

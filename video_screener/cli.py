@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -157,6 +158,43 @@ def validate(path: str = typer.Argument(..., help="annotation or inference JSON/
         model.model_validate(r)
         n_ok += 1
     console.print(f"[green]OK[/green] {n_ok} {kind} records valid")
+
+
+@app.command("validate-manifest")
+def validate_manifest(
+    path: str = typer.Argument(..., help="community dataset manifest JSONL"),
+):
+    """Validate a metadata-only community dataset manifest.
+
+    This command never downloads media from URL records. It reports every
+    invalid line and exits non-zero if any row fails.
+    """
+    from .community_manifest import manifest_summary, validate_manifest_rows
+
+    records, errors = validate_manifest_rows(path)
+    if errors:
+        for item in errors:
+            console.print(
+                f"[red]line {item['line']}[/red]: {item['error']}"
+            )
+        console.print(
+            f"[red]invalid[/red] {len(errors)} line(s); "
+            f"{len(records)} valid record(s)"
+        )
+        raise typer.Exit(code=1)
+
+    summary = manifest_summary(records)
+    console.print(f"[green]OK[/green] {summary['records']} community manifest records valid")
+    for key in (
+        "contribution_status",
+        "providers",
+        "models",
+        "media_licenses",
+        "annotation_licenses",
+        "missing_prompt",
+        "missing_references",
+    ):
+        console.print(f"{key}: {json.dumps(summary[key], sort_keys=True)}")
 
 
 @app.command("dashboard")

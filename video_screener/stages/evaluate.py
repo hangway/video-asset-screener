@@ -90,6 +90,8 @@ def run(cfg: PipelineConfig, split: str = "test") -> dict[str, Any]:
     pred_scores_list: list[dict] = []
     strata_aes: list[str] = []
     strata_motion: list[str] = []
+    strata_provider: list[str] = []
+    strata_model: list[str] = []
     per_clip: list[dict] = []
 
     for rec in evaluable:
@@ -111,6 +113,8 @@ def run(cfg: PipelineConfig, split: str = "test") -> dict[str, Any]:
         strata_aes.append((ctx.get("aesthetic_family") or ["(none)"])[0]
                           if ctx.get("aesthetic_family") else "(none)")
         strata_motion.append(ctx.get("motion_complexity") or "(none)")
+        strata_provider.append(rec.get("provider") or "(none)")
+        strata_model.append(rec.get("model") or "(none)")
         per_clip.append({
             "asset_id": rec["asset_id"],
             "true_verdict": tv, "pred_verdict": pred["verdict"],
@@ -137,6 +141,8 @@ def run(cfg: PipelineConfig, split: str = "test") -> dict[str, Any]:
         "stratified": {
             "aesthetic_family": stratified_verdict_accuracy(strata_aes, y_true, y_pred),
             "motion_complexity": stratified_verdict_accuracy(strata_motion, y_true, y_pred),
+            "provider": stratified_verdict_accuracy(strata_provider, y_true, y_pred),
+            "model": stratified_verdict_accuracy(strata_model, y_true, y_pred),
         },
         "consistency": consistency_rate(y_pred, pred_scores_list, pred_flags),
         "worst_failures": worst_gallery,
