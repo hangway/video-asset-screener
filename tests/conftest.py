@@ -18,9 +18,16 @@ def have_ffmpeg() -> bool:
     return which("ffmpeg") is not None and which("ffprobe") is not None
 
 
-requires_ffmpeg = pytest.mark.skipif(
+_skip_without_ffmpeg = pytest.mark.skipif(
     not have_ffmpeg(), reason="ffmpeg/ffprobe not available"
 )
+
+
+def requires_ffmpeg(obj):
+    """ffmpeg/ffprobe-dependent tests double as the suite's slow tier
+    (audit A10): every training-loop test also sits behind this gate, so
+    `pytest -m "not slow"` is the fast path and plain `pytest` runs all."""
+    return pytest.mark.slow(_skip_without_ffmpeg(obj))
 
 
 @pytest.fixture(scope="session")

@@ -52,6 +52,9 @@ def _assemble(workdir: str | Path) -> dict:
     eval_rep = _read_json(wd / "evaluate" / "eval_report.json")
     screen_res = _read_jsonl(wd / "screen" / "screen_results.jsonl")
     routing = _read_json(wd / "screen" / "routing.json")
+    describe_rows = _read_jsonl(wd / "describe" / "analysis.jsonl")
+    describe_summary = _read_json(wd / "describe" / "summary.json")
+    describe_by_id = {r.get("asset_id"): r for r in describe_rows}
 
     ann_by_id = {a["asset_id"]: a for a in annotations}
     assign = (splits or {}).get("assignment", {})
@@ -63,6 +66,10 @@ def _assemble(workdir: str | Path) -> dict:
             frames = a.get("sampled_frames", [])
             mid = frames[len(frames) // 2]["path"] if frames else None
             ann = ann_by_id.get(aid, {})
+            desc = describe_by_id.get(aid, {})
+            analysis = desc.get("analysis") or {}
+            video_desc = analysis.get("video_description") or {}
+            transcript = analysis.get("transcript") or {}
             assets.append({
                 "asset_id": aid,
                 "verdict": ann.get("verdict", "PASS"),
@@ -73,6 +80,12 @@ def _assemble(workdir: str | Path) -> dict:
                 "decode_ok": a.get("decode_ok", True),
                 "duplicate_of": a.get("duplicate_of"),
                 "thumb": _thumb(mid),
+                # Semantic enrichment is display-only; it never participates
+                # in the verdict or taxonomy fields above.
+                "description": video_desc.get("response", "")
+                    if isinstance(video_desc, dict) else str(video_desc or ""),
+                "transcript": transcript.get("text", "")
+                    if isinstance(transcript, dict) else str(transcript or ""),
             })
 
     def stage_entry(done: bool, metric: str) -> dict:
@@ -94,6 +107,10 @@ def _assemble(workdir: str | Path) -> dict:
                                if eval_rep else ""),
         "screen": stage_entry(bool(screen_res),
                              f"{routing['n']} screened" if routing else ""),
+        "describe": stage_entry(describe_summary is not None,
+                                f"{describe_summary.get('n_described', 0)} described, "
+                                f"{describe_summary.get('n_failed', 0)} failed"
+                                if describe_summary else ""),
     }
 
     train_block = None
@@ -122,13 +139,16 @@ def _assemble(workdir: str | Path) -> dict:
         "train": train_block,
         "evaluate": eval_rep,
         "screen": screen_block,
+        "describe": describe_summary,
     }
 
 
 def build_dashboard(workdir: str | Path, out: Optional[str | Path] = None) -> Path:
     data = _assemble(workdir)
     template = TEMPLATE.read_text(encoding="utf-8")
-    payload = json.dumps(data, ensure_ascii=False)
+    # <-escape '<' so a string like '</script>' in an asset id cannot
+    # terminate the inline <script> block the payload is injected into (A8)
+    payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
     # inject between the /*__DATA__*/ ... /*__END__*/ markers
     start = template.index("/*__DATA__*/") + len("/*__DATA__*/")
     end = template.index("/*__END__*/")

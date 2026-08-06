@@ -87,3 +87,29 @@ def test_corrupted_clip_does_not_crash(samples_dir):
 def test_missing_file_does_not_crash(tmp_path):
     res = probe_signal_stats(tmp_path / "nope.mp4")
     assert res.ok is False and res.frames == []
+
+
+# ------------- lavfi path escaping (audit A5: Windows drive letters) --------
+def test_lavfi_escape_windows_drive_letter_colon():
+    """Platform-independent guard for the movie= graph construction.
+
+    ffmpeg unescapes in two levels: the filtergraph parser strips the outer
+    quotes (quoted text literal), then the movie option parser splits on ':'
+    and unescapes '\\'. An unescaped drive-letter colon terminates the
+    filename option at 'C' — the 5 Windows failures reported in PR #10.
+    """
+    from video_screener.utils.ffprobe_metrics import _escape_lavfi_path
+
+    assert _escape_lavfi_path("C:\\clips\\a.mp4") == "'C\\:\\\\clips\\\\a.mp4'"
+    # POSIX paths gain nothing but the quotes
+    assert _escape_lavfi_path("/data/clips/a.mp4") == "'/data/clips/a.mp4'"
+    # embedded quote handling unchanged
+    assert _escape_lavfi_path("/d/o'k.mp4") == "'/d/o\\'k.mp4'"
+
+
+def test_lavfi_graph_uses_escaped_path():
+    from video_screener.utils.ffprobe_metrics import _escape_lavfi_path
+
+    escaped = _escape_lavfi_path("C:\\clips\\a.mp4")
+    graph = f"movie={escaped},signalstats"
+    assert graph == "movie='C\\:\\\\clips\\\\a.mp4',signalstats"

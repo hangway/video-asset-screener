@@ -192,6 +192,10 @@ class InferenceRecord(BaseModel):
     fix_actions: list[str] = Field(default_factory=list)
     primary_reasons: list[str] = Field(default_factory=list)
     needs_human_review: bool = False
+    # Provenance, not taxonomy vocabulary (audit A6): the effective frame
+    # encoder that produced this record, so a CLIP->deterministic downgrade
+    # is visible in the artifact. Empty string = pre-A6 record.
+    encoder: str = ""
 
     @field_validator("verdict")
     @classmethod

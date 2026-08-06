@@ -27,7 +27,8 @@ from ..taxonomy_schema import (
     TAXONOMY_VERSION,
     duration_bucket,
 )
-from ..utils.io import read_json, write_jsonl
+from ..models.encoder import effective_encoder_name
+from ..utils.io import read_json, write_json, write_jsonl
 from ..utils.metrics_backend import build_metrics_backend
 
 
@@ -164,11 +165,16 @@ def run(cfg: PipelineConfig) -> dict[str, Any]:
 
     out = cfg.stage_dir("prelabel") / "prelabels.jsonl"
     write_jsonl(out, records)
-    return {
+    summary = {
         "stage": "prelabel",
         "n_records": len(records),
         "verdicts": verdict_counts,
         "metrics_backend": backend.name,
+        "encoder": effective_encoder_name(cfg),  # A6: downgrade provenance
         "prelabels_path": str(out),
         "taxonomy_version": TAXONOMY_VERSION,
     }
+    # persist (previously the summary — the only prelabel artifact carrying
+    # taxonomy_version — was returned to the caller but never written)
+    write_json(cfg.stage_dir("prelabel") / "summary.json", summary)
+    return summary

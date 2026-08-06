@@ -28,6 +28,11 @@ def test_all_prelabels_validate(tmp_path, synth_samples):
     recs = _run(tmp_path, synth_samples)
     for r in recs.values():
         AnnotationRecord.model_validate(r)  # raises on taxonomy violation
+    # A6: the persisted prelabel summary stamps the effective encoder
+    summary = json.loads(
+        (tmp_path / "run" / "prelabel" / "summary.json").read_text())
+    assert isinstance(summary["encoder"], str) and summary["encoder"]
+    assert summary["taxonomy_version"]
 
 
 @requires_ffmpeg

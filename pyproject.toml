@@ -43,6 +43,7 @@ packages = [
     "video_screener.utils",
     "tui",
     "dashboard",
+    "samples",
 ]
 
 [tool.setuptools.package-data]
@@ -51,3 +52,6 @@ dashboard = ["template.html"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "slow: ffmpeg/ffprobe-dependent and training-loop tests (fast path: pytest -m 'not slow')",
+]

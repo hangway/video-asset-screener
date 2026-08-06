@@ -372,6 +372,9 @@ def test_screen_clean_pass_and_routing(tmp_path, synth_samples):
     routing = json.loads((out / "routing.json").read_text())
     assert sum(routing["counts"].values()) == summary["n_screened"]
     assert set(routing["queues"]) == {"PASS", "FIX", "REJECT"}
+    # A6: routing doc + every result record stamp the effective encoder
+    assert isinstance(routing["encoder"], str) and routing["encoder"]
+    assert all(r["encoder"] == routing["encoder"] for r in by.values())
 
 
 @requires_ffmpeg

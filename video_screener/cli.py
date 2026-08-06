@@ -22,7 +22,10 @@ run_app = typer.Typer(help="Run one stage or the full pipeline")
 app.add_typer(run_app, name="run")
 console = Console()
 
-STAGES = ["ingest", "prelabel", "annotate", "dataset", "train", "evaluate", "screen"]
+STAGES = [
+    "ingest", "prelabel", "annotate", "dataset", "train", "evaluate",
+    "screen", "describe",
+]
 
 
 def _load(config: Optional[str], workdir: Optional[str], video_dir: Optional[list[str]]):
@@ -103,6 +106,16 @@ def run_screen(config: Optional[str] = typer.Option(None), workdir: Optional[str
     _print_summary(screen.run(cfg, out=out))
 
 
+@run_app.command("describe")
+def run_describe(config: Optional[str] = typer.Option(None), workdir: Optional[str] = None,
+                 video_dir: Optional[list[str]] = typer.Option(None)):
+    """Optionally enrich clips with semantic descriptions and transcripts."""
+    cfg = _load(config, workdir, video_dir)
+    from .stages import describe
+
+    _print_summary(describe.run(cfg))
+
+
 @run_app.command("all")
 def run_all(config: Optional[str] = typer.Option(None), workdir: Optional[str] = None,
             video_dir: Optional[list[str]] = typer.Option(None),
@@ -132,11 +145,24 @@ def run_all(config: Optional[str] = typer.Option(None), workdir: Optional[str] =
 
 
 @app.command("samples")
-def make_samples(out: str = typer.Option("samples", help="output directory")):
+def make_samples(out: str = typer.Option("samples", help="output directory"),
+                 force: bool = typer.Option(
+                     False, "--force",
+                     help="overwrite existing clips (WARNING: prelabel "
+                          "thresholds are calibrated to the committed clip "
+                          "bytes; re-encoding shifts borderline verdicts)")):
     """(Re)synthesize the ffmpeg sample clips + sidecars."""
     from samples.make_samples import build_samples
 
-    built = build_samples(out)
+    try:
+        built = build_samples(out, force=force)
+    except FileExistsError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    if force:
+        console.print("[yellow]warning:[/yellow] clips re-encoded — prelabel "
+                      "thresholds were calibrated to the previous bytes; "
+                      "re-run calibration or `git checkout -- samples/`.")
     console.print(f"built {len(built)} clips into {out}")
 
 

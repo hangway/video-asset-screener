@@ -91,11 +91,32 @@ def _ctx(**kw) -> dict:
     return base
 
 
-def build_samples(out_dir: str | Path) -> list[Path]:
-    """Build all sample clips + sidecars into ``out_dir``. Idempotent-ish:
-    always regenerates to keep bytes deterministic across ffmpeg versions."""
+def _guard_overwrite(out: Path, force: bool) -> None:
+    """Refuse to re-encode over existing clips unless explicitly forced.
+
+    The committed samples/*.mp4 bytes are what the prelabel thresholds were
+    calibrated against; a different ffmpeg build produces different bytes and
+    shifts borderline clips (e.g. watermark) across the PASS/FIX boundary,
+    failing tests on untouched code (audit A3)."""
+    existing = sorted(p.name for p in out.glob("*.mp4"))
+    if existing and not force:
+        raise FileExistsError(
+            f"refusing to overwrite existing sample clips in {out} "
+            f"({', '.join(existing)}): prelabel thresholds are calibrated to "
+            "the exact committed clip bytes, and re-encoding with a different "
+            "ffmpeg build can shift borderline clips (e.g. watermark) across "
+            "the PASS/FIX boundary. Pass --force / force=True only to "
+            "deliberately recalibrate; restore tracked clips with "
+            "`git checkout -- samples/`."
+        )
+
+
+def build_samples(out_dir: str | Path, *, force: bool = False) -> list[Path]:
+    """Build all sample clips + sidecars into ``out_dir``. Refuses to
+    overwrite existing clips unless ``force`` (see ``_guard_overwrite``)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    _guard_overwrite(out, force)
     built: list[Path] = []
 
     # 1) clean PASS -------------------------------------------------------
@@ -288,12 +309,13 @@ def build_samples(out_dir: str | Path) -> list[Path]:
     return built
 
 
-def build_stability_samples(out_dir: str | Path) -> list[Path]:
+def build_stability_samples(out_dir: str | Path, *, force: bool = False) -> list[Path]:
     """Extra clips exercising the objective freezedetect/blackdetect signals
     (frozen video, all-black video). Kept OUT of the core 8-clip set so the
     long-standing sample counts stay stable; tests build these on demand."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    _guard_overwrite(out, force)
     built: list[Path] = []
 
     # a) fully frozen video: one detailed frame held for the whole clip ------
@@ -348,8 +370,10 @@ def build_stability_samples(out_dir: str | Path) -> list[Path]:
 if __name__ == "__main__":
     import sys
 
-    target = sys.argv[1] if len(sys.argv) > 1 else str(Path(__file__).resolve().parent)
-    paths = build_samples(target)
+    args = [a for a in sys.argv[1:] if a != "--force"]
+    force = "--force" in sys.argv[1:]
+    target = args[0] if args else str(Path(__file__).resolve().parent)
+    paths = build_samples(target, force=force)
     print(f"built {len(paths)} clips into {target}")
     for p in paths:
         print(" -", p.name, f"({p.stat().st_size} bytes)")

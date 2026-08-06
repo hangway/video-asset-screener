@@ -79,6 +79,8 @@ def test_ingest_end_to_end(tmp_path, synth_samples):
     import json
 
     idx = json.loads((tmp_path / "run" / "ingest" / "index.json").read_text())
+    # A6: the index stamps the EFFECTIVE encoder (what actually runs)
+    assert isinstance(idx["encoder"], str) and idx["encoder"]
     by_id = {a["asset_id"]: a for a in idx["assets"]}
 
     # duplicate detected and points at clean_pass

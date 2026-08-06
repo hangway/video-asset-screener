@@ -40,3 +40,20 @@ dataset:
 
 screen:
   review_confidence_threshold: 0.55
+
+# Optional semantic enrichment via the separately installed video-analyzer
+# console script. It is disabled so the default pipeline remains offline and
+# deterministic; enable explicitly when Ollama or an OpenAI-compatible API is
+# configured.
+describe:
+  enabled: false
+  executable: video-analyzer
+  client: ollama             # ollama | openai_api
+  # model: llama3.2-vision
+  # api_key_env: VIDEO_ANALYZER_API_KEY
+  # api_url: https://openrouter.ai/api/v1
+  # prompt: "Describe the main events and notable subjects in this clip."
+  # max_frames: 30
+  # whisper_model: medium
+  # device: cpu
+  # screen_verdicts: [PASS]  # optional: enrich only selected screen results

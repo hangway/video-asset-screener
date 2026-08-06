@@ -9,8 +9,9 @@ CLIP/SigLIP features -> temporal transformer -> heads). Two backends:
   deterministic and network-free, so the whole pipeline runs and tests are
   reproducible without downloading any weights.
 - ``ClipEncoder`` (``encoder: "clip:<name>"``): a real CLIP/SigLIP image tower
-  via open_clip, used only when weights are locally available. Falls back to
-  the deterministic encoder if the model cannot be loaded (e.g. offline).
+  via open_clip, used only when weights are locally available. An explicit
+  request raises a clear error if the model cannot be loaded (e.g. offline);
+  use ``encoder: \"auto\"`` to opt into deterministic fallback.
 
 Both are FROZEN: no gradients flow into them; features are cached to disk.
 """
@@ -137,8 +138,13 @@ def build_encoder(cfg) -> DeterministicEncoder | ClipEncoder:
     """Resolve the encoder from ``cfg.model.encoder``.
 
     - ``"deterministic"`` -> DeterministicEncoder
-    - ``"clip:<name>"``   -> ClipEncoder (fallback to deterministic on failure)
+    - ``"clip:<name>"``   -> ClipEncoder; a load failure RAISES (audit A6):
+      an explicit spec that silently downgraded to the deterministic encoder
+      stripped reference-consistency screening of meaning with no trace
+      (the deterministic encoder cannot judge identity).
     - ``"auto"``          -> try a small local CLIP, else deterministic
+      (fallback is part of auto's contract, so it stays silent here; the
+      effective name is stamped into every stage artifact).
     """
     spec = cfg.model.encoder
     fdim = cfg.model.feature_dim
@@ -147,10 +153,59 @@ def build_encoder(cfg) -> DeterministicEncoder | ClipEncoder:
     if spec.startswith("clip:"):
         try:
             return ClipEncoder(spec.split(":", 1)[1], feature_dim=fdim)
-        except Exception:
-            return DeterministicEncoder(feature_dim=fdim)
+        except Exception as e:
+            raise RuntimeError(
+                f"encoder spec {spec!r} was requested explicitly but failed "
+                f"to load ({type(e).__name__}: {e}). Refusing to silently "
+                "fall back to the deterministic encoder — it cannot judge "
+                "identity, so reference-consistency results would be "
+                "meaningless. Use encoder 'auto' if a fallback is acceptable."
+            ) from e
+    if spec != "auto":
+        raise ValueError(
+            f"unsupported encoder spec {spec!r}; expected 'auto', "
+            "'deterministic', or 'clip:<name>'"
+        )
+
     # auto
     try:
         return ClipEncoder("ViT-B-32", feature_dim=fdim)
     except Exception:
         return DeterministicEncoder(feature_dim=fdim)
+
+
+def validate_checkpoint_encoder(ckpt: dict, encoder) -> None:
+    """Refuse to feed a checkpoint features from a different encoder.
+
+    The deterministic and common CLIP backends can both emit 512-dimensional
+    vectors, so tensor shapes alone cannot detect a semantically incompatible
+    feature space. Checkpoints without encoder provenance retain the legacy
+    behavior for backward compatibility.
+    """
+    trained_encoder = ckpt.get("encoder")
+    if trained_encoder and trained_encoder != encoder.name:
+        raise RuntimeError(
+            f"checkpoint encoder {trained_encoder!r} does not match the "
+            f"effective encoder {encoder.name!r}. Refusing to use model "
+            "weights with a different feature space; restore the training "
+            "encoder or retrain the model."
+        )
+
+
+# Effective-name memo for stages that stamp provenance without keeping an
+# encoder (ingest, prelabel). Keyed by (spec, feature_dim); 'auto' resolution
+# is environment-dependent, so the memo avoids repeated CLIP load attempts.
+_NAME_CACHE: dict[tuple[str, int], str] = {}
+
+
+def effective_encoder_name(cfg) -> str:
+    """The name ``build_encoder(cfg)`` would resolve to, for artifact stamps.
+
+    Performs (once per spec) the same load attempt as ``build_encoder``, so
+    the stamped name records what actually runs, not what was configured —
+    an ``auto`` downgrade to ``deterministic`` is visible in every artifact.
+    """
+    key = (cfg.model.encoder, cfg.model.feature_dim)
+    if key not in _NAME_CACHE:
+        _NAME_CACHE[key] = build_encoder(cfg).name
+    return _NAME_CACHE[key]

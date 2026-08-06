@@ -24,7 +24,7 @@ from ..eval_metrics import (
     stratified_verdict_accuracy,
     verdict_confusion,
 )
-from ..models.encoder import build_encoder
+from ..models.encoder import build_encoder, validate_checkpoint_encoder
 from ..models.model import MultiTaskScreener
 from ..taxonomy_schema import DIMENSIONS, HARD_FAIL_FLAGS, TAXONOMY_VERSION, VERDICTS
 from ..utils.io import read_jsonl, write_json
@@ -77,6 +77,7 @@ def run(cfg: PipelineConfig, split: str = "test") -> dict[str, Any]:
         raise FileNotFoundError(f"{ckpt_path} missing; run the train stage first")
     model, ckpt = load_model(ckpt_path)
     encoder = build_encoder(cfg)
+    validate_checkpoint_encoder(ckpt, encoder)
 
     recs = read_jsonl(cfg.stage_dir("dataset") / f"{split}.jsonl")
     evaluable = [r for r in recs if r.get("frames")]
